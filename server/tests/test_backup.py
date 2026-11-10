@@ -114,3 +114,16 @@ def test_task_reads_the_sites_settings(tmp_path, monkeypatch):
     assert os.environ["STRIDEBOARD_DATABASE"] == "/home/x/data.sqlite3"
     assert os.environ["STRIDEBOARD_GMAIL_USER"] == "a@b.c"
     os.environ.pop("STRIDEBOARD_DATABASE"); os.environ.pop("STRIDEBOARD_GMAIL_USER")
+
+
+def test_never_emails_a_plain_copy_when_encryption_is_missing(tmp_path, monkeypatch, capsys):
+    """Health data must never leave by email unencrypted: no encryption, no email."""
+    import backup
+    import mailer
+    db_path = make_db(tmp_path)
+    sent = []
+    monkeypatch.setattr(backup, "can_encrypt", lambda: False)
+    monkeypatch.setattr(mailer, "send_backup", lambda *a, **k: sent.append(a) or "x@example.com")
+    backup.run_daily(db_path, now=datetime(2026, 11, 9, 3, 0, tzinfo=backup.TZ), email=True)
+    assert sent == []
+    assert "NOT emailing" in capsys.readouterr().out

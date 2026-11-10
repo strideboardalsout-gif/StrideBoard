@@ -197,6 +197,11 @@ def run_daily(db_path, now=None, email=None):
     tidy(db_path, now.date())        # after the copy, so the copy is the safety net
     if email is None:
         email = now.weekday() == 0   # Mondays
+    if email and not can_encrypt():
+        # Never email a plain copy of the health data: skip the email until encryption works.
+        print("NOT emailing the backup: the 'cryptography' package is missing, so the copy "
+              "would not be encrypted. Run: pip3 install --user cryptography")
+        email = False
     if email:
         import mailer
         try:
