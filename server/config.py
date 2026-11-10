@@ -343,7 +343,7 @@ COMEBACK_MIN_LAST_WEEK = 10_000  # ...and last week had at least 10,000 steps
 ANDROID_APP_LATEST = {"code": 6, "name": "1.5",
                       "news": "Your account link is now stored encrypted on your phone."}
 ANDROID_APP_UPDATER_FROM = 5     # versions from here on update in-app; older ones reinstall once
-ANDROID_APK_URL = "https://github.com/SohamBhongade/StrideBoard/releases/download/android-latest/StrideBoard.apk"
+ANDROID_APK_URL = "https://github.com/strideboardalsout-gif/StrideBoard/releases/download/android-latest/StrideBoard.apk"
 
 # --- Leaderboards, wrap-up and challenges ---
 IMPROVEMENT_MIN_LAST_WEEK = 1_000  # need some steps last week to compare against

@@ -357,7 +357,7 @@ StrideBoard/
 You need **Python 3.10 or newer** and **Git**.
 
 ```bash
-git clone https://github.com/SohamBhongade/StrideBoard.git
+git clone https://github.com/strideboardalsout-gif/StrideBoard.git
 cd StrideBoard
 
 python -m venv .venv
