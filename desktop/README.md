@@ -10,7 +10,7 @@ search box to filter both boards as you type; press Enter to search everyone, no
 (each person keeps their real rank).
 
 **Download:** Admin → Leaderboard screen on the website, or the
-[leaderboard-app-latest release](https://github.com/SohamBhongade/StrideBoard/releases/tag/leaderboard-app-latest):
+[leaderboard-app-latest release](https://github.com/strideboardalsout-gif/StrideBoard/releases/tag/leaderboard-app-latest):
 `StrideBoard-Leaderboard.exe` (Windows: a one-click installer that adds Start menu and desktop shortcuts) and `StrideBoard-Leaderboard.dmg` (Mac).
 
 **Made for a screen that's always on:** keeps the display awake (no dimming or sleep), remembers its

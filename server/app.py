@@ -38,7 +38,7 @@ LEADERBOARD_VIEWS = [("everyone", "Everyone"), ("effort", "Effort"), ("improveme
 AGE_BANDS = [("under_13", "Under 13"), ("teen_13_17", "13 to 17"),
              ("adult_18_39", "18 to 39"), ("adult_40_59", "40 to 59"),
              ("senior_60_plus", "60 and over")]
-BOARD_APP_DOWNLOADS = "https://github.com/SohamBhongade/StrideBoard/releases/download/leaderboard-app-latest/"
+BOARD_APP_DOWNLOADS = "https://github.com/strideboardalsout-gif/StrideBoard/releases/download/leaderboard-app-latest/"
 BOARD_ROWS = 13           # people on the leaderboard screen (podium of 3 + 10 in two columns)
 LEADERBOARD_TOP = 50       # rows shown before "Show everyone"
 MOODS = [(1, "Low"), (2, "Meh"), (3, "Okay"), (4, "Good"), (5, "Great")]

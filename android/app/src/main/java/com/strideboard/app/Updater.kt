@@ -23,7 +23,7 @@ import java.net.URL
  */
 object Updater {
     const val APK_URL =
-        "https://github.com/SohamBhongade/StrideBoard/releases/download/android-latest/StrideBoard.apk"
+        "https://github.com/strideboardalsout-gif/StrideBoard/releases/download/android-latest/StrideBoard.apk"
     private const val ACTION_STATUS = "com.strideboard.app.UPDATE_STATUS"
 
     fun versionCode(c: Context): Long {
