@@ -23,12 +23,27 @@
       <div style="margin-top:12px; display:flex; flex-direction:column; gap:12px">
     <p class="small muted">Treat it like a password: never share it or post it.</p>
     <p class="muted">Your phone uses this to send your steps. Treat it like a password: never share it or post it.</p>
-    {% if me.api_token %}
-    <div class="token-box" style="color:var(--ink)">
-      <code id="token" data-token="{{ me.api_token }}" aria-live="polite">••••••••••••••••••••••••</code>
-      <button type="button" class="btn btn-outline btn-sm" data-toggle-token aria-controls="token">Show</button>
+    {% if me.api_token and token_shown %}
+    <div class="token-box" style="color:var(--ink)" id="token-box">
+      <code id="token" aria-live="polite">{{ me.api_token }}</code>
       <button type="button" class="btn btn-dark btn-sm" data-copy="{{ me.api_token }}">{{ m.icon('copy', 17) }} Copy</button>
+      <form method="post" class="inline-form" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <button name="action" value="hide_token" class="btn btn-outline btn-sm">Hide</button>
+      </form>
     </div>
+    <p class="small muted">Shown for 5 minutes. Enter your PIN again to see it later.</p>
+    {% elif me.api_token %}
+    <div class="token-box" style="color:var(--ink)" id="token-box">
+      <code id="token" aria-live="polite">••••••••••••••••••••••••</code>
+    </div>
+    <form method="post" class="inline-form" action="{{ url_for('settings') }}#token">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label class="small">Enter your PIN to show the token
+        <input type="password" name="pin" inputmode="numeric" autocomplete="current-password" required>
+      </label>
+      <button name="action" value="reveal_token" class="btn btn-outline btn-sm">Show token</button>
+    </form>
     {% else %}
     <p>No token yet. Make one below.</p>
     {% endif %}

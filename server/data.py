@@ -239,6 +239,12 @@ def authenticate(conn, username, pin):
     return get_user(conn, row["id"])
 
 
+def verify_my_pin(conn, uid, pin):
+    """True if pin is this user's own PIN (used before showing the phone token)."""
+    row = conn.execute("SELECT pin_hash FROM users WHERE id = ?", (uid,)).fetchone()
+    return bool(row) and check_password_hash(row["pin_hash"], str(pin or "").strip())
+
+
 def _check_new_user(conn, username, display_name, role, department, age_band):
     """Clean and check a new person's details. Returns them, or raises ValueError."""
     username = _clean_username(username)

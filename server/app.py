@@ -580,6 +580,27 @@ def _login_key(name):
     return " ".join((name or "").lower().split())
 
 
+TOKEN_SHOW_SECONDS = 300   # the phone token stays on the Settings page this long after a correct PIN
+
+
+def _token_shown():
+    return session.get("token_shown_until", 0) > datetime.now().timestamp()
+
+
+def _reveal_token(conn, uid):
+    """Show the phone token only after the right PIN. Wrong PINs count toward the same lockout as login."""
+    name = g.user["username"]
+    locked = login_locked(name)
+    if locked:
+        flash(f"Too many wrong PINs. Wait {locked} minutes and try again.", "error")
+    elif data.verify_my_pin(conn, uid, request.form.get("pin")):
+        session["token_shown_until"] = datetime.now().timestamp() + TOKEN_SHOW_SECONDS
+    else:
+        note_failed_login(name, request.remote_addr)
+        flash("That PIN isn't right.", "error")
+    return redirect(url_for("settings") + "#token")
+
+
 def login_locked(name):
     """Minutes left if this name has had too many wrong PINs lately, else 0."""
     now = datetime.now().timestamp()
@@ -1106,6 +1127,11 @@ def add_routes(app):
         conn, uid = db.get_db(), g.user["id"]
         if request.method == "POST":
             action = request.form.get("action")
+            if action == "reveal_token":
+                return _reveal_token(conn, uid)
+            if action == "hide_token":
+                session.pop("token_shown_until", None)
+                return redirect(url_for("settings") + "#token")
             try:
                 if action == "my_details":
                     data.update_my_details(conn, uid, request.form.get("display_name"), None)
@@ -1202,7 +1228,7 @@ def add_routes(app):
         slot = request.args.get("slot")
         if slot not in dict(config.AVATAR_SLOTS):
             slot = config.AVATAR_SLOTS[0][0]
-        return render_template("settings.html", me=data.get_user(conn, uid), age_bands=AGE_BANDS,
+        return render_template("settings.html", me=data.get_user(conn, uid), age_bands=AGE_BANDS, token_shown=_token_shown(),
                                classes=config.SIGNUP_CLASSES, departments=config.SIGNUP_DEPARTMENTS,
                                is_owner=g.user["username"] == config.OWNER_USERNAME,
                                shop=data.avatar_shop(conn, uid), slot=slot, slots=config.AVATAR_SLOTS,
