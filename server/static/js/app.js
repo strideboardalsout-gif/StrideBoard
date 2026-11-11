@@ -805,14 +805,24 @@ window.StrideBoard.ready(function (root) {
     setTimeout(function () { toast.remove(); }, 4200);
   }
 
+  // A fold-out (<details>) is matched by its id, or else by its heading.
+  function foldKey(d) {
+    var summary = d.querySelector("summary");
+    return d.id || (summary ? summary.textContent.replace(/\s+/g, " ").trim() : "");
+  }
+
   function swapIn(doc, url, method) {
     var main = document.getElementById("main");
     var fresh = doc.getElementById("main");
     var y = window.scrollY;
     var focusId = document.activeElement && document.activeElement.id;
+    // Fold-outs that were open stay open (e.g. "Advanced: show my phone token" after the PIN).
+    var open = {};
+    main.querySelectorAll("details[open]").forEach(function (d) { var k = foldKey(d); if (k) open[k] = true; });
     main.replaceChildren.apply(main, Array.prototype.map.call(fresh.childNodes, function (n) {
       return document.importNode(n, true);
     }));
+    main.querySelectorAll("details").forEach(function (d) { if (open[foldKey(d)]) d.open = true; });
     if (doc.title) document.title = doc.title;
     if (method === "get") { history.pushState({ sbSwap: true }, "", url.href); pushed = true; }
     else if (url.href !== location.href) history.replaceState(history.state, "", url.href);
