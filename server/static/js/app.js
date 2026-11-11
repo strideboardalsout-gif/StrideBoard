@@ -814,6 +814,22 @@ window.StrideBoard.ready(function (root) {
     return d.id || (summary ? summary.textContent.replace(/\s+/g, " ").trim() : "");
   }
 
+  // Avatars are <use href="#look"> pointing at one hidden sheet of drawings at the end of <body>
+  // (outside <main>). The new content may show looks the old sheet doesn't have (the Avatar
+  // studio's try-ons, other people on the leaderboard), so the new page's sheet comes along too.
+  function avatarSheet(doc) {
+    return Array.prototype.find.call(doc.body.children, function (el) {
+      return el.tagName.toLowerCase() === "svg" && el.querySelector("symbol");
+    }) || null;
+  }
+  function swapSheet(doc) {
+    var fresh = avatarSheet(doc), old = avatarSheet(document);
+    if (!fresh) return;
+    var copy = document.importNode(fresh, true);
+    if (old) old.replaceWith(copy);
+    else document.body.appendChild(copy);
+  }
+
   function swapIn(doc, url, method, hash) {
     var main = document.getElementById("main");
     var fresh = doc.getElementById("main");
@@ -822,6 +838,7 @@ window.StrideBoard.ready(function (root) {
     // Fold-outs that were open stay open (e.g. "Advanced: show my phone token" after the PIN).
     var open = {};
     main.querySelectorAll("details[open]").forEach(function (d) { var k = foldKey(d); if (k) open[k] = true; });
+    swapSheet(doc);          // drawings first, so the new avatars show straight away
     main.replaceChildren.apply(main, Array.prototype.map.call(fresh.childNodes, function (n) {
       return document.importNode(n, true);
     }));
