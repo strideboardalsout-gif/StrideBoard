@@ -1534,3 +1534,24 @@ button.side-link { border: 0; background: none; color: inherit; font: inherit; c
 .game.gl-on .g-clouds, .game.gl-on .g-far, .game.gl-on .g-near, .game.gl-on .g-sun, .game.gl-on .g-gem,
 .game.gl-on .g-burst, .game.gl-on .g-fountain, .game.gl-on .g-confetti, .game.gl-on .g-flag { animation: none; }
 
+
+/* ---- Saving without reloading (see "Save without reloading" in app.js) */
+html.swapping { cursor: progress; }
+.swap-busy { pointer-events: none; }                       /* no double taps while it saves */
+.swap-busy button[aria-busy="true"] { opacity: .55; transition: opacity .15s .12s; }   /* only dims if the save takes a moment */
+/* If the "Saved" message is scrolled out of sight, it also shows briefly at the top */
+.swap-toast { position: fixed; top: calc(12px + env(safe-area-inset-top)); left: 50%; z-index: 60;
+  width: min(calc(100vw - 32px), 460px); transform: translateX(-50%);
+  animation: swap-toast-in .28s cubic-bezier(.2, .8, .2, 1) both; }
+.swap-toast .flashes { margin: 0; }
+.swap-toast .flash { box-shadow: 0 10px 30px rgba(20, 30, 40, .18); animation: none; }   /* the toast already slides in */
+.swap-toast.leaving { opacity: 0; transform: translate(-50%, -8px); transition: opacity .3s, transform .3s; }
+@keyframes swap-toast-in { from { opacity: 0; transform: translate(-50%, -10px); } }
+.fast .swap-toast, .lite .swap-toast { animation: none; }
+
+/* Moving between pages: a quick cross-fade instead of a white flash (browsers that support it) */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+}
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .18s; }
+:root.fast::view-transition-old(root), :root.fast::view-transition-new(root) { animation: none; }

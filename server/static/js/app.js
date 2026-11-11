@@ -1,56 +1,264 @@
 // StrideBoard: small helpers for every page. Plain JavaScript, no libraries.
-(function () {
+//
+// Forms on most pages save without reloading (see "Save without reloading" at the end): the new
+// page comes back in the background and only <main> is swapped. So every block that sets up
+// buttons or forms inside the page registers with StrideBoard.ready(fn), and fn(root, first) runs
+// on the whole document when the page loads (first = true) and again on the new <main> after each
+// swap (first = false). StrideBoard.once(el, key) makes sure an element is never set up twice.
+// Blocks that belong to the whole page (tab bar, break timer, prefetch) still run once.
+window.StrideBoard = window.StrideBoard || {};
+(function (SB) {
+  "use strict";
+  var steps = [], seen = {};
+  SB.ready = function (fn) { steps.push(fn); };
+  SB.once = function (el, key) {
+    var set = seen[key] || (seen[key] = new WeakSet());
+    if (set.has(el)) return false;
+    set.add(el);
+    return true;
+  };
+  SB.setup = function (root, first) {
+    steps.forEach(function (fn) {
+      try { fn(root, first); } catch (e) { if (window.console) console.error(e); }   // one broken block never stops the rest
+    });
+  };
+  // Send a form as if its button was pressed: requestSubmit fires the submit event (so the
+  // form can save without reloading); very old browsers fall back to a plain submit.
+  SB.submit = function (form) {
+    if (form.requestSubmit) form.requestSubmit();
+    else form.submit();
+  };
+})(window.StrideBoard);
+
+(function (SB) {
   "use strict";
 
   // Safe localStorage: some browsers block it (private mode), so never crash.
   function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
   function save(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* ignore */ } }
 
-  // ---- Ask "are you sure?" before forms marked with data-confirm
-  document.querySelectorAll("form[data-confirm]").forEach(function (form) {
-    form.addEventListener("submit", function (e) {
-      if (!window.confirm(form.getAttribute("data-confirm"))) e.preventDefault();
+  SB.ready(function (root, first) {
+    // ---- Ask "are you sure?" before forms marked with data-confirm
+    root.querySelectorAll("form[data-confirm]").forEach(function (form) {
+      if (!SB.once(form, "confirm")) return;
+      form.addEventListener("submit", function (e) {
+        if (!window.confirm(form.getAttribute("data-confirm"))) e.preventDefault();
+      });
     });
-  });
 
-  // ---- Copy buttons (the phone token)
-  document.querySelectorAll("[data-copy]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var text = btn.getAttribute("data-copy");
-      var done = function () {
-        var old = btn.innerHTML;
-        btn.textContent = "Copied!";
-        setTimeout(function () { btn.innerHTML = old; }, 1600);
-      };
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(text).then(done);
-      } else {
-        // Fallback for plain http on a laptop during testing
-        var box = document.createElement("textarea");
-        box.value = text; document.body.appendChild(box); box.select();
-        try { document.execCommand("copy"); done(); } catch (e) { /* ignore */ }
-        box.remove();
+    // ---- Copy buttons (the phone token)
+    root.querySelectorAll("[data-copy]").forEach(function (btn) {
+      if (!SB.once(btn, "copy")) return;
+      btn.addEventListener("click", function () {
+        var text = btn.getAttribute("data-copy");
+        var done = function () {
+          var old = btn.innerHTML;
+          btn.textContent = "Copied!";
+          setTimeout(function () { btn.innerHTML = old; }, 1600);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(done);
+        } else {
+          // Fallback for plain http on a laptop during testing
+          var box = document.createElement("textarea");
+          box.value = text; document.body.appendChild(box); box.select();
+          try { document.execCommand("copy"); done(); } catch (e) { /* ignore */ }
+          box.remove();
+        }
+      });
+    });
+
+    // ---- Show / hide the token
+    var tokenToggle = root.querySelector("[data-toggle-token]");
+    if (tokenToggle && SB.once(tokenToggle, "token")) {
+      var code = document.getElementById("token");
+      var hidden = code.textContent;
+      tokenToggle.addEventListener("click", function () {
+        var showing = tokenToggle.textContent === "Hide";
+        code.textContent = showing ? hidden : code.getAttribute("data-token");
+        tokenToggle.textContent = showing ? "Show" : "Hide";
+      });
+    }
+
+    // ---- In-site "time to stand up" reminder
+    // The server sets data-due="1" only when the phone's syncs show fewer than 50 steps
+    // in the last 30+ minutes. It shows between 7:00 and 21:00, and "Done" hides it
+    // for 30 minutes.
+    var stand = root.querySelector("#stand-nudge");
+    if (stand && SB.once(stand, "stand")) {
+      var hour = new Date().getHours();
+      var last = parseInt(load("sb_stand_last") || "0", 10);
+      var dismissedRecently = Date.now() - last < 30 * 60 * 1000;
+      stand.hidden = !(stand.getAttribute("data-due") === "1" && !dismissedRecently && hour >= 7 && hour < 21);
+      stand.querySelector("[data-dismiss-stand]").addEventListener("click", function () {
+        save("sb_stand_last", String(Date.now()));
+        stand.hidden = true;
+      });
+    }
+
+    // ---- One-time hint on iPhone Safari: Share -> Add to Home Screen
+    var iosHint = root.querySelector("#ios-hint");
+    if (iosHint && SB.once(iosHint, "ioshint")) {
+      var ua = navigator.userAgent;
+      var isIOS = /iPhone|iPad|iPod/.test(ua);
+      var isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+      var installed = window.navigator.standalone === true;
+      if (isIOS && isSafari && !installed && !load("sb_ios_hint_done")) iosHint.hidden = false;
+      iosHint.querySelector("[data-dismiss-ios]").addEventListener("click", function () {
+        save("sb_ios_hint_done", "1");
+        iosHint.hidden = true;
+      });
+    }
+
+    // ---- iPhone: "Sync from Apple Health" button on the dashboard.
+    // A website cannot read Apple Health, so the button runs the StrideBoard Sync
+    // Shortcut. When the person comes back, the page reloads to show the new steps.
+    var iosSync = root.querySelector("[data-ios-sync]");
+    if (iosSync && SB.once(iosSync, "iossync")) {
+      var agent = navigator.userAgent;
+      var isIPad = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1; // iPads say "Mac"
+      if ((/iPhone|iPod|iPad/.test(agent) || isIPad) && agent.indexOf("StrideBoardAndroid") === -1) {
+        iosSync.hidden = false;
+        iosSync.querySelector("a").addEventListener("click", function () {
+          save("sb_sync_started", String(Date.now()));
+        });
+        if (!SB.iosSyncWatching) {          // one listener for the page, however many swaps
+          SB.iosSyncWatching = true;
+          document.addEventListener("visibilitychange", function () {
+            if (document.visibilityState !== "visible") return;
+            var started = parseInt(load("sb_sync_started") || "0", 10);
+            if (started && Date.now() - started < 5 * 60 * 1000) {
+              save("sb_sync_started", "0");
+              location.reload();
+            }
+          });
+        }
       }
-    });
-  });
+    }
 
-  // ---- Show / hide the token
-  var tokenToggle = document.querySelector("[data-toggle-token]");
-  if (tokenToggle) {
-    var code = document.getElementById("token");
-    var hidden = code.textContent;
-    tokenToggle.addEventListener("click", function () {
-      var showing = tokenToggle.textContent === "Hide";
-      code.textContent = showing ? hidden : code.getAttribute("data-token");
-      tokenToggle.textContent = showing ? "Show" : "Hide";
+    // ---- Admin: update the suggested distance target when dates change
+    var form = root.querySelector("#challenge-form");
+    if (form && SB.once(form, "challengeform")) {
+      var perDay = parseInt(form.getAttribute("data-per-day"), 10) || 0;
+      var start = form.querySelector("#start_date");
+      var end = form.querySelector("#end_date");
+      var target = form.querySelector("#target_steps");
+      var hint = form.querySelector("#target-hint");
+      var kind = form.querySelector("#kind");
+      var distanceOnly = form.querySelector("[data-distance-only]");
+      var update = function () {
+        var days = Math.round((new Date(end.value) - new Date(start.value)) / 86400000) + 1;
+        if (days > 0 && perDay) {
+          var steps = perDay * days;
+          target.value = steps;
+          hint.textContent = "Suggested: active people × 7,000 × " + days + " days = " +
+            steps.toLocaleString("en-US") + " steps (" + (steps * 0.0007).toFixed(1) + " km).";
+        }
+      };
+      start.addEventListener("change", update);
+      end.addEventListener("change", update);
+      kind.addEventListener("change", function () {
+        distanceOnly.hidden = kind.value !== "school_distance";
+      });
+    }
+
+    // ---- Count up big numbers on the dashboard (a little game feel)
+    // Only on the first visit to a page in this tab (see .no-intro in base.html), and never
+    // after a save: the numbers just change.
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var replay = document.documentElement.classList.contains("no-intro");
+    if (first && !reduce && !replay) {
+      root.querySelectorAll("[data-count]").forEach(function (el) {
+        var target = parseInt(el.getAttribute("data-count"), 10) || 0;
+        // Keep the final width while counting, so "/ 10,000" next to it does not jump.
+        el.style.minWidth = el.getBoundingClientRect().width + "px";
+        el.textContent = "0";
+        var startTime = null;
+        var step = function (t) {
+          if (!startTime) startTime = t;
+          var p = Math.min((t - startTime) / 1200, 1);   // same length as the ring animation
+          var eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = Math.round(target * eased).toLocaleString("en-US");
+          if (p < 1) requestAnimationFrame(step);
+          else el.style.minWidth = "";
+        };
+        requestAnimationFrame(step);
+      });
+    }
+
+    // ---- Leaderboard: the period dropdown switches straight away; the search box hides
+    // non-matching rows as you type (Enter searches the whole board, not just the top 50).
+    root.querySelectorAll("select[data-autosubmit]").forEach(function (sel) {
+      if (!SB.once(sel, "autosubmit")) return;
+      sel.addEventListener("change", function () { SB.submit(sel.form); });
     });
-  }
+    var boardSearch = root.querySelector("[data-board-search]");
+    if (boardSearch && SB.once(boardSearch, "boardsearch")) {
+      // Same rule as the server: any part of a name, or a class/department word that starts with it.
+      var boardMatch = function (el, needle) {
+        if (!needle) return true;
+        if (el.getAttribute("data-name").indexOf(needle) !== -1) return true;
+        return (el.getAttribute("data-dept") || "").split(" ").some(function (w) { return w.indexOf(needle) === 0; });
+      };
+      boardSearch.addEventListener("input", function () {
+        var needle = boardSearch.value.trim().toLowerCase();
+        document.querySelectorAll(".rank-row[data-name]").forEach(function (row) {
+          row.classList.toggle("no-match", !boardMatch(row, needle));
+        });
+      });
+    }
+
+    // ---- Dashboard water +/- and mood: save without reloading the page (small JSON reply).
+    // If anything goes wrong, the form is sent the normal way instead.
+    root.querySelectorAll("form[data-quick]").forEach(function (f) {
+      if (!SB.once(f, "quick")) return;
+      var busy = false;
+      f.addEventListener("submit", function (e) {
+        if (!window.fetch || !window.FormData) return;   // very old browser: normal submit
+        e.preventDefault();
+        if (busy) return;   // ignore double taps while saving
+        busy = true;
+        var button = e.submitter || f.querySelector("button");
+        var body = new FormData(f);
+        if (button && button.name) body.append(button.name, button.value);   // e.g. mood=4
+        if (button) button.setAttribute("aria-busy", "true");
+        // getAttribute: the hidden input named "action" hides the form's f.action property
+        fetch(f.getAttribute("action"), { method: "POST", body: body, credentials: "same-origin",
+                          headers: { "X-Requested-With": "fetch" } })
+          .then(function (r) { return r.json().then(function (res) { return { ok: r.ok, res: res }; }); })
+          .then(function (out) {
+            if (!out.ok || !out.res.ok) { window.alert(out.res.error || "Could not save. Please try again."); return; }
+            if (f.getAttribute("data-quick") === "water") updateWater(out.res);
+            else updateMood(out.res);
+          })
+          .catch(function () { f.submit(); })   // network or server trouble: fall back to a page load
+          .then(function () { busy = false; if (button) button.removeAttribute("aria-busy"); });
+      });
+    });
+
+    // ---- Settings: show the chosen avatar and colour straight away (saved on "Save avatar")
+    var avForm = root.querySelector(".avatar-form");
+    var avPreview = root.querySelector("[data-av-preview] .av");
+    if (avForm && avPreview && SB.once(avForm, "avatar")) {
+      avForm.addEventListener("change", function () {
+        var preview = document.querySelector("[data-av-preview] .av");
+        var pick = avForm.querySelector("input[name=avatar]:checked");
+        var colour = avForm.querySelector("input[name=avatar_color]:checked");
+        if (pick) {
+          var emoji = document.createElement("span");
+          emoji.className = "av-emoji";
+          emoji.textContent = pick.getAttribute("data-emoji");
+          preview.replaceChildren(emoji);
+        }
+        if (colour) preview.className = "av av-" + colour.value;
+      });
+    }
+  });
 
   // ---- Live steps from the Android app
   // While the app is on screen it reads Health Connect every 30 seconds and calls
   // StrideBoard.liveSteps(n). This updates today's numbers in place, without reloading.
-  window.StrideBoard = window.StrideBoard || {};
-  window.StrideBoard.liveSteps = function (steps) {
+  SB.liveSteps = function (steps) {
     var card = document.querySelector("[data-live-steps]");
     steps = parseInt(steps, 10);
     if (!card || isNaN(steps) || steps < 0) return;
@@ -78,131 +286,6 @@
         ' to go.</strong> Moving more is linked to better mood and sleep, and a walk between lessons all adds up.</p>';
   };
 
-  // ---- In-site "time to stand up" reminder
-  // The server sets data-due="1" only when the phone's syncs show fewer than 50 steps
-  // in the last 30+ minutes. It shows between 7:00 and 21:00, and "Done" hides it
-  // for 30 minutes.
-  var stand = document.getElementById("stand-nudge");
-  if (stand) {
-    var hour = new Date().getHours();
-    var last = parseInt(load("sb_stand_last") || "0", 10);
-    var dismissedRecently = Date.now() - last < 30 * 60 * 1000;
-    stand.hidden = !(stand.getAttribute("data-due") === "1" && !dismissedRecently && hour >= 7 && hour < 21);
-    stand.querySelector("[data-dismiss-stand]").addEventListener("click", function () {
-      save("sb_stand_last", String(Date.now()));
-      stand.hidden = true;
-    });
-  }
-
-  // ---- One-time hint on iPhone Safari: Share -> Add to Home Screen
-  var iosHint = document.getElementById("ios-hint");
-  if (iosHint) {
-    var ua = navigator.userAgent;
-    var isIOS = /iPhone|iPad|iPod/.test(ua);
-    var isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
-    var installed = window.navigator.standalone === true;
-    if (isIOS && isSafari && !installed && !load("sb_ios_hint_done")) iosHint.hidden = false;
-    iosHint.querySelector("[data-dismiss-ios]").addEventListener("click", function () {
-      save("sb_ios_hint_done", "1");
-      iosHint.hidden = true;
-    });
-  }
-
-  // ---- iPhone: "Sync from Apple Health" button on the dashboard.
-  // A website cannot read Apple Health, so the button runs the StrideBoard Sync
-  // Shortcut. When the person comes back, the page reloads to show the new steps.
-  var iosSync = document.querySelector("[data-ios-sync]");
-  if (iosSync) {
-    var agent = navigator.userAgent;
-    var isIPad = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1; // iPads say "Mac"
-    if ((/iPhone|iPod|iPad/.test(agent) || isIPad) && agent.indexOf("StrideBoardAndroid") === -1) {
-      iosSync.hidden = false;
-      iosSync.querySelector("a").addEventListener("click", function () {
-        save("sb_sync_started", String(Date.now()));
-      });
-      document.addEventListener("visibilitychange", function () {
-        if (document.visibilityState !== "visible") return;
-        var started = parseInt(load("sb_sync_started") || "0", 10);
-        if (started && Date.now() - started < 5 * 60 * 1000) {
-          save("sb_sync_started", "0");
-          location.reload();
-        }
-      });
-    }
-  }
-
-  // ---- Admin: update the suggested distance target when dates change
-  var form = document.getElementById("challenge-form");
-  if (form) {
-    var perDay = parseInt(form.getAttribute("data-per-day"), 10) || 0;
-    var start = form.querySelector("#start_date");
-    var end = form.querySelector("#end_date");
-    var target = form.querySelector("#target_steps");
-    var hint = form.querySelector("#target-hint");
-    var kind = form.querySelector("#kind");
-    var distanceOnly = form.querySelector("[data-distance-only]");
-    var update = function () {
-      var days = Math.round((new Date(end.value) - new Date(start.value)) / 86400000) + 1;
-      if (days > 0 && perDay) {
-        var steps = perDay * days;
-        target.value = steps;
-        hint.textContent = "Suggested: active people × 7,000 × " + days + " days = " +
-          steps.toLocaleString("en-US") + " steps (" + (steps * 0.0007).toFixed(1) + " km).";
-      }
-    };
-    start.addEventListener("change", update);
-    end.addEventListener("change", update);
-    kind.addEventListener("change", function () {
-      distanceOnly.hidden = kind.value !== "school_distance";
-    });
-  }
-
-  // ---- Count up big numbers on the dashboard (a little game feel)
-  // Only on the first visit to a page in this tab (see .no-intro in base.html).
-  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var replay = document.documentElement.classList.contains("no-intro");
-  if (!reduce && !replay) {
-    document.querySelectorAll("[data-count]").forEach(function (el) {
-      var target = parseInt(el.getAttribute("data-count"), 10) || 0;
-      // Keep the final width while counting, so "/ 10,000" next to it does not jump.
-      el.style.minWidth = el.getBoundingClientRect().width + "px";
-      el.textContent = "0";
-      var startTime = null;
-      var step = function (t) {
-        if (!startTime) startTime = t;
-        var p = Math.min((t - startTime) / 1200, 1);   // same length as the ring animation
-        var eased = 1 - Math.pow(1 - p, 3);
-        el.textContent = Math.round(target * eased).toLocaleString("en-US");
-        if (p < 1) requestAnimationFrame(step);
-        else el.style.minWidth = "";
-      };
-      requestAnimationFrame(step);
-    });
-  }
-
-  // ---- Leaderboard: the period dropdown switches straight away; the search box hides
-  // non-matching rows as you type (Enter searches the whole board, not just the top 50).
-  document.querySelectorAll("select[data-autosubmit]").forEach(function (sel) {
-    sel.addEventListener("change", function () { sel.form.submit(); });
-  });
-  var boardSearch = document.querySelector("[data-board-search]");
-  // Same rule as the server: any part of a name, or a class/department word that starts with it.
-  var boardMatch = function (el, needle) {
-    if (!needle) return true;
-    if (el.getAttribute("data-name").indexOf(needle) !== -1) return true;
-    return (el.getAttribute("data-dept") || "").split(" ").some(function (w) { return w.indexOf(needle) === 0; });
-  };
-  if (boardSearch) {
-    boardSearch.addEventListener("input", function () {
-      var needle = boardSearch.value.trim().toLowerCase();
-      document.querySelectorAll(".rank-row[data-name]").forEach(function (row) {
-        row.classList.toggle("no-match", !boardMatch(row, needle));
-      });
-    });
-  }
-
-  // ---- Dashboard water +/- and mood: save without reloading the page.
-  // If anything goes wrong, the form is sent the normal way instead.
   function updateWater(res) {
     var count = document.querySelector("[data-water-count]");
     if (!count) return;
@@ -235,57 +318,17 @@
     if (note) note.textContent = "Saved. Your wrap-up compares mood with your steps.";
   }
 
-  document.querySelectorAll("form[data-quick]").forEach(function (f) {
-    var busy = false;
-    f.addEventListener("submit", function (e) {
-      if (!window.fetch || !window.FormData) return;   // very old browser: normal submit
-      e.preventDefault();
-      if (busy) return;   // ignore double taps while saving
-      busy = true;
-      var button = e.submitter || f.querySelector("button");
-      var body = new FormData(f);
-      if (button && button.name) body.append(button.name, button.value);   // e.g. mood=4
-      if (button) button.setAttribute("aria-busy", "true");
-      // getAttribute: the hidden input named "action" hides the form's f.action property
-      fetch(f.getAttribute("action"), { method: "POST", body: body, credentials: "same-origin",
-                        headers: { "X-Requested-With": "fetch" } })
-        .then(function (r) { return r.json().then(function (res) { return { ok: r.ok, res: res }; }); })
-        .then(function (out) {
-          if (!out.ok || !out.res.ok) { window.alert(out.res.error || "Could not save. Please try again."); return; }
-          if (f.getAttribute("data-quick") === "water") updateWater(out.res);
-          else updateMood(out.res);
-        })
-        .catch(function () { f.submit(); })   // network or server trouble: fall back to a page load
-        .then(function () { busy = false; if (button) button.removeAttribute("aria-busy"); });
-    });
-  });
-
-  // ---- Settings: show the chosen avatar and colour straight away (saved on "Save avatar")
-  var avForm = document.querySelector(".avatar-form");
-  var avPreview = document.querySelector("[data-av-preview] .av");
-  if (avForm && avPreview) {
-    avForm.addEventListener("change", function () {
-      var pick = avForm.querySelector("input[name=avatar]:checked");
-      var colour = avForm.querySelector("input[name=avatar_color]:checked");
-      if (pick) {
-        var emoji = document.createElement("span");
-        emoji.className = "av-emoji";
-        emoji.textContent = pick.getAttribute("data-emoji");
-        avPreview.replaceChildren(emoji);
-      }
-      if (colour) avPreview.className = "av av-" + colour.value;
-    });
-  }
-
   // ---- PWA: register the service worker (offline page, faster loads)
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () {
       navigator.serviceWorker.register("/sw.js").catch(function () { /* not critical */ });
     });
   }
-})();
+})(window.StrideBoard);
 
-// ---- Mini challenges: a running clock, the Done button unlocking, and live walk progress
+// ---- Mini challenges: a running clock, the Done button unlocking, and live walk progress.
+// A page with a challenge running always loads normally (never swapped in), so this runs once.
+// It stops itself if a save removes the challenge from the page.
 (function () {
   var box = document.querySelector("[data-mini-live]");
   if (!box) return;
@@ -296,12 +339,14 @@
   var clocks = box.querySelectorAll("[data-mini-clock]");
   var done = box.querySelector("[data-mini-done]");
   var label = box.querySelector("[data-done-label]");
+  var timer = null;
   function mmss(s) {
     s = Math.max(0, Math.floor(s));
     var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = ("0" + s % 60).slice(-2);
     return h ? h + ":" + ("0" + m).slice(-2) + ":" + sec : m + ":" + sec;
   }
   function tick() {
+    if (!box.isConnected) { clearInterval(timer); return; }   // the challenge was quit or finished
     var secs = (Date.now() - started) / 1000;
     var shown = plank ? (secs >= plank ? "Time!" : mmss(plank - secs)) : mmss(secs);
     clocks.forEach(function (c) { c.textContent = shown; });
@@ -315,7 +360,7 @@
     }
   }
   tick();
-  setInterval(tick, 1000);
+  timer = setInterval(tick, 1000);
 
   // Walks: the Android app calls StrideBoard.liveSteps(today's total) every 30 seconds.
   var base = box.getAttribute("data-walk-base");
@@ -327,6 +372,7 @@
   window.StrideBoard = window.StrideBoard || {};
   window.StrideBoard.liveSteps = function (steps) {
     if (previous) previous(steps);
+    if (!box.isConnected) return;   // the walk is no longer on the page
     steps = parseInt(steps, 10);
     if (isNaN(steps)) return;
     var walked = Math.max(0, Math.min(goal, steps - base));
@@ -356,8 +402,12 @@
 })();
 
 // ---- Settings > Appearance: save as soon as a choice is tapped
-document.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
-  form.addEventListener("change", function () { form.submit(); });
+window.StrideBoard.ready(function (root) {
+  var SB = window.StrideBoard;
+  root.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
+    if (!SB.once(form, "autosubmitform")) return;
+    form.addEventListener("change", function () { SB.submit(form); });
+  });
 });
 
 // ---- Admin > People: filter the list as you type (the tabs and Enter also work without this)
@@ -409,9 +459,9 @@ document.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
 })();
 
 // ---- Stride Reaper pop-up on Home: slides in, leaves after 9 s or when closed
-(function () {
-  var toast = document.querySelector("[data-reaper-toast]");
-  if (!toast) return;
+window.StrideBoard.ready(function (root) {
+  var toast = root.querySelector("[data-reaper-toast]");
+  if (!toast || !window.StrideBoard.once(toast, "reaper")) return;
   var gone = false;
   function hide() {
     if (gone) return;
@@ -421,7 +471,7 @@ document.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
   }
   toast.querySelector("[data-reaper-close]").addEventListener("click", hide);
   setTimeout(hide, 9000);
-})();
+});
 
 // ---- Faster taps: start loading a page the moment a finger (or mouse button) goes down on its
 // link, so it's often ready by the time the finger lifts (the server is ~0.25 s away from Dubai).
@@ -450,9 +500,12 @@ document.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
 })();
 
 // ---- Buttons that ask "are you sure?" (e.g. Delete forever)
-document.querySelectorAll("button[data-confirm]").forEach(function (btn) {
-  btn.addEventListener("click", function (e) {
-    if (!window.confirm(btn.getAttribute("data-confirm"))) e.preventDefault();
+window.StrideBoard.ready(function (root) {
+  root.querySelectorAll("button[data-confirm]").forEach(function (btn) {
+    if (!window.StrideBoard.once(btn, "confirmbtn")) return;
+    btn.addEventListener("click", function (e) {
+      if (!window.confirm(btn.getAttribute("data-confirm"))) e.preventDefault();
+    });
   });
 });
 
@@ -473,6 +526,7 @@ document.querySelectorAll("button[data-confirm]").forEach(function (btn) {
 })();
 
 // ---- Mini challenge complete: count the EXP up, then let them close the celebration
+// (a page with the celebration always loads normally, so this runs once)
 (function () {
   var win = document.querySelector("[data-win]");
   if (!win) return;
@@ -508,13 +562,14 @@ document.querySelectorAll("button[data-confirm]").forEach(function (btn) {
 })();
 
 // ---- Workout scenes: the athlete is SVG animation, so pause it when the phone asks for less motion
-if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+window.StrideBoard.ready(function (root) {
+  if (!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
   // The workout figure keeps moving: it shows HOW to do the exercise. Only the celebration
   // (pure decoration) is stilled; removing its movement leaves every part in its clean first pose.
-  document.querySelectorAll(".game-cheer animate, .game-cheer animateTransform").forEach(function (a) {
+  root.querySelectorAll(".game-cheer animate, .game-cheer animateTransform").forEach(function (a) {
     a.parentNode.removeChild(a);
   });
-}
+});
 
 // ---- Walk challenges: the athlete waits at the last checkpoint reached and walks to the next
 // one only when the steps get there (every fifth of the walk). Remembers where it was shown, so
@@ -591,16 +646,17 @@ if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").m
 
 // Android app "Update" notice on Home: newer apps download and install the update themselves
 // (Android then asks "Update StrideBoard?"). Older apps just follow the download link.
-(function () {
-  var btn = document.querySelector("[data-app-update-button]");
+window.StrideBoard.ready(function (root) {
+  var btn = root.querySelector("[data-app-update-button]");
   if (!btn || !(window.StrideBoardApp && window.StrideBoardApp.installUpdate)) return;
+  if (!window.StrideBoard.once(btn, "appupdate")) return;
   btn.addEventListener("click", function (e) {
     e.preventDefault();
     btn.textContent = "Downloading…";
     window.StrideBoardApp.installUpdate();
     setTimeout(function () { btn.textContent = "Update"; }, 15000);
   });
-})();
+});
 
 // Offline Home: the service worker shows the last saved Home when there's no internet.
 // Say so, grey out anything that needs the internet, and refresh once it's back.
@@ -612,7 +668,7 @@ if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").m
   var note = document.createElement("div");
   note.className = "offline-note";
   note.setAttribute("role", "status");
-  note.textContent = "You're offline \u00b7 this is your Home from " + label + ". It updates when you're back online.";
+  note.textContent = "You're offline · this is your Home from " + label + ". It updates when you're back online.";
   var main = document.querySelector(".main");
   if (main) main.insertBefore(note, main.firstChild);
   document.querySelectorAll("form button, form input, [data-app-update-button]").forEach(function (el) {
@@ -673,3 +729,162 @@ if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").m
       .catch(function () { /* offline: fine */ });
   }, 60000);
 })();
+
+// ---- Save without reloading.
+// On pages marked <body data-swap> (Home, Log, Challenges, Settings, Ranks, Badges), a form inside
+// <main> is sent in the background. The server answers the way it always does (save, then
+// redirect back to the page), and the new <main> replaces the old one: no white flash, no jump to
+// the top, and the page's buttons are set up again on the new content.
+// A normal page load happens instead when:
+//   - the form has data-reload (theme and fast mode: they change the whole page's look), or sits
+//     outside <main> (log out), or is a data-quick form (those already save on their own);
+//   - the answer is a different page (e.g. deleting your account), a page that isn't swappable,
+//     or a page whose look changed (theme, glass or Material colours);
+//   - the new content has a running mini challenge, a workout scene or a celebration (those need
+//     their full animations);
+//   - anything goes wrong.
+(function (SB) {
+  "use strict";
+  if (!document.body.hasAttribute("data-swap")) return;
+  if (!window.fetch || !window.DOMParser || !window.FormData || !window.WeakSet || !Element.prototype.replaceChildren) return;
+
+  var NEEDS_FULL_LOAD = ".game[data-gl], [data-mini-live], [data-win]";
+  var busy = false, pushed = false;
+
+  // new FormData(form, submitter) adds the pressed button (e.g. action=avatar_wear). Older
+  // browsers ignore the second argument, so check once and add it by hand there.
+  var submitterSupported = (function () {
+    try {
+      var f = document.createElement("form"), b = document.createElement("button");
+      b.name = "x"; b.value = "1"; f.appendChild(b);
+      return new FormData(f, b).get("x") === "1";
+    } catch (e) { return false; }
+  })();
+  function formData(form, submitter) {
+    if (submitter && submitterSupported) return new FormData(form, submitter);
+    var data = new FormData(form);
+    if (submitter && submitter.name) data.append(submitter.name, submitter.value);
+    return data;
+  }
+
+  // Send the form the ordinary way (page load), keeping the pressed button's name and value.
+  function nativeSubmit(form, submitter) {
+    if (submitter && submitter.name) {
+      var keep = document.createElement("input");
+      keep.type = "hidden"; keep.name = submitter.name; keep.value = submitter.value;
+      form.appendChild(keep);
+    }
+    HTMLFormElement.prototype.submit.call(form);   // skips the submit event, so this code doesn't run again
+  }
+
+  // What decides the page's look: theme, Material/fast classes and the colour <style>s in <head>.
+  // (glass, lite and no-intro are added in the browser, so they're left out.)
+  function look(doc) {
+    var html = doc.documentElement;
+    var cls = (html.getAttribute("class") || "").split(/\s+/)
+      .filter(function (c) { return c === "material" || c === "fast"; }).sort().join(" ");
+    // Only the site's own <style>s (they have no attributes): browser extensions add their own.
+    var styles = Array.prototype.filter.call(doc.head ? doc.head.querySelectorAll("style") : [],
+                                             function (s) { return s.attributes.length === 0; })
+      .map(function (s) { return s.textContent; }).join("|");
+    return (html.getAttribute("data-theme") || "") + "#" + cls + "#" + styles;
+  }
+
+  // If the "Saved" message ended up above the screen, show it briefly at the top as well.
+  function showMessage(main) {
+    var flashes = main.querySelector(".flashes");
+    if (!flashes || flashes.getBoundingClientRect().bottom > 0) return;
+    var old = document.querySelector(".swap-toast");
+    if (old) old.remove();
+    var toast = document.createElement("div");
+    toast.className = "swap-toast";
+    toast.setAttribute("aria-hidden", "true");   // the message in the page is the one screen readers hear
+    toast.appendChild(flashes.cloneNode(true));
+    document.body.appendChild(toast);
+    setTimeout(function () { toast.classList.add("leaving"); }, 3800);
+    setTimeout(function () { toast.remove(); }, 4200);
+  }
+
+  function swapIn(doc, url, method) {
+    var main = document.getElementById("main");
+    var fresh = doc.getElementById("main");
+    var y = window.scrollY;
+    var focusId = document.activeElement && document.activeElement.id;
+    main.replaceChildren.apply(main, Array.prototype.map.call(fresh.childNodes, function (n) {
+      return document.importNode(n, true);
+    }));
+    if (doc.title) document.title = doc.title;
+    if (method === "get") { history.pushState({ sbSwap: true }, "", url.href); pushed = true; }
+    else if (url.href !== location.href) history.replaceState(history.state, "", url.href);
+    window.scrollTo(0, y);
+    SB.setup(main, false);
+    if (focusId && document.getElementById(focusId)) document.getElementById(focusId).focus({ preventScroll: true });
+    showMessage(main);
+  }
+
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (e.defaultPrevented || !(form instanceof HTMLFormElement)) return;   // e.g. "are you sure?" said no
+    var main = document.getElementById("main");
+    if (!main || !main.contains(form)) return;
+    if (form.hasAttribute("data-reload") || form.hasAttribute("data-quick") || form.getAttribute("target")) return;
+    var method = (form.getAttribute("method") || "get").toLowerCase();
+    if (method !== "get" && method !== "post") return;
+    var url = new URL(form.getAttribute("action") || location.href, location.href);   // getAttribute: see data-quick
+    if (url.origin !== location.origin) return;
+
+    e.preventDefault();
+    if (busy) return;              // ignore double taps while saving
+    busy = true;
+    var submitter = e.submitter || null;
+    var data = formData(form, submitter);
+    var request = { credentials: "same-origin", headers: { "X-Requested-With": "swap" } };
+    if (method === "get") {
+      url.search = new URLSearchParams(data).toString();
+    } else {
+      request.method = "POST";
+      request.body = data;
+    }
+    url.hash = "";
+    form.classList.add("swap-busy");
+    if (submitter) submitter.setAttribute("aria-busy", "true");
+    document.documentElement.classList.add("swapping");
+    var answered = null;           // the page the server sent back, once it has answered
+
+    fetch(url.href, request)
+      .then(function (res) {
+        answered = new URL(res.url);
+        var type = res.headers.get("Content-Type") || "";
+        if (!res.ok) throw new Error("refused");                 // e.g. an expired form: let the browser show it
+        if (type.indexOf("text/html") === -1) throw new Error("not a page");
+        return res.text();
+      })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, "text/html");
+        var fresh = doc.getElementById("main");
+        var samePage = answered.pathname === location.pathname;
+        if (!fresh || !doc.body.hasAttribute("data-swap") || !samePage ||
+            look(doc) !== look(document) || fresh.querySelector(NEEDS_FULL_LOAD)) {
+          location.replace(answered.href);   // just a normal load of the page the server picked
+          return;
+        }
+        swapIn(doc, answered, method);
+      })
+      .catch(function (err) {
+        if (answered && err && err.message === "refused") { nativeSubmit(form, submitter); return; }
+        if (answered) { location.replace(answered.href); return; }
+        nativeSubmit(form, submitter);       // couldn't reach the server: try the ordinary way
+      })
+      .then(function () {
+        busy = false;
+        form.classList.remove("swap-busy");
+        if (submitter) submitter.removeAttribute("aria-busy");
+        document.documentElement.classList.remove("swapping");
+      });
+  });
+
+  // Back/forward after a swapped search (the leaderboard's period): load that page normally.
+  window.addEventListener("popstate", function () { if (pushed) location.reload(); });
+})(window.StrideBoard);
+
+window.StrideBoard.setup(document, true);

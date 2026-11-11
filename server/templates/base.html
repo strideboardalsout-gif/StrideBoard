@@ -68,7 +68,7 @@
   </script>
   {% block head %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}"{% if break_after %} data-break-after="{{ break_after }}" data-break-seconds="{{ BREAK_SECONDS }}"{% endif %}{% if screen_limit %} data-screen-limit="{{ screen_limit }}"{% endif %}>
+<body class="{% block body_class %}{% endblock %}"{% if break_after %} data-break-after="{{ break_after }}" data-break-seconds="{{ BREAK_SECONDS }}"{% endif %}{% if screen_limit %} data-screen-limit="{{ screen_limit }}"{% endif %}{% if user and request.endpoint in SWAP_PAGES %} data-swap{% endif %}>
 
 {%- macro nav_link(endpoint, label, icon_name) -%}
   <a href="{{ url_for(endpoint) }}" class="side-link{% if request.endpoint == endpoint %} active{% endif %}"
