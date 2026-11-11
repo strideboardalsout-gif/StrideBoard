@@ -735,6 +735,9 @@ window.StrideBoard.ready(function (root) {
 // <main> is sent in the background. The server answers the way it always does (save, then
 // redirect back to the page), and the new <main> replaces the old one: no white flash, no jump to
 // the top, and the page's buttons are set up again on the new content.
+// Links inside <main> that stay on the same page with a different ?query (the Avatar studio's
+// tabs, the leaderboard's views) are swapped in the same way, and the address bar follows.
+// Links to other pages load normally.
 // A normal page load happens instead when:
 //   - the form has data-reload (theme and fast mode: they change the whole page's look), or sits
 //     outside <main> (log out), or is a data-quick form (those already save on their own);
@@ -811,7 +814,7 @@ window.StrideBoard.ready(function (root) {
     return d.id || (summary ? summary.textContent.replace(/\s+/g, " ").trim() : "");
   }
 
-  function swapIn(doc, url, method) {
+  function swapIn(doc, url, method, hash) {
     var main = document.getElementById("main");
     var fresh = doc.getElementById("main");
     var y = window.scrollY;
@@ -824,13 +827,75 @@ window.StrideBoard.ready(function (root) {
     }));
     main.querySelectorAll("details").forEach(function (d) { if (open[foldKey(d)]) d.open = true; });
     if (doc.title) document.title = doc.title;
-    if (method === "get") { history.pushState({ sbSwap: true }, "", url.href); pushed = true; }
+    if (method === "get") { history.pushState({ sbSwap: true }, "", url.href + (hash || "")); pushed = true; }
     else if (url.href !== location.href) history.replaceState(history.state, "", url.href);
-    window.scrollTo(0, y);
+    window.scrollTo(0, y);   // stay put: the tapped tab or button is where the person is looking
     SB.setup(main, false);
     if (focusId && document.getElementById(focusId)) document.getElementById(focusId).focus({ preventScroll: true });
     showMessage(main);
   }
+
+  // Fetch a page and decide whether it can be swapped in. Resolves with {doc, url} to swap, or
+  // {load: url} when a normal page load is needed. Rejects with err.refused when the server said
+  // no (the caller lets the browser show that the ordinary way).
+  function fetchPage(href, request) {
+    var answered = null;
+    return fetch(href, request)
+      .then(function (res) {
+        answered = new URL(res.url);
+        var type = res.headers.get("Content-Type") || "";
+        if (!res.ok) { var err = new Error("refused"); err.refused = true; err.url = answered; throw err; }
+        if (type.indexOf("text/html") === -1) return { load: answered };
+        return res.text().then(function (html) {
+          var doc = new DOMParser().parseFromString(html, "text/html");
+          var fresh = doc.getElementById("main");
+          if (!fresh || !doc.body.hasAttribute("data-swap") || answered.pathname !== location.pathname ||
+              look(doc) !== look(document) || fresh.querySelector(NEEDS_FULL_LOAD)) return { load: answered };
+          return { doc: doc, url: answered };
+        });
+      })
+      .catch(function (err) {
+        if (!err.refused && answered) err.url = answered;   // something broke after the server answered
+        throw err;
+      });
+  }
+
+  function busyStart(el) {
+    busy = true;
+    if (el) el.setAttribute("aria-busy", "true");
+    document.documentElement.classList.add("swapping");
+  }
+  function busyEnd(el) {
+    busy = false;
+    if (el) el.removeAttribute("aria-busy");
+    document.documentElement.classList.remove("swapping");
+  }
+
+  // ---- Links that stay on this page (only the ?query changes)
+  document.addEventListener("click", function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var a = e.target.closest ? e.target.closest("a[href]") : null;
+    var main = document.getElementById("main");
+    if (!a || !main || !main.contains(a)) return;
+    if (a.hasAttribute("download") || a.hasAttribute("data-reload")) return;
+    var target = a.getAttribute("target");
+    if (target && target !== "_self") return;
+    var url = new URL(a.href, location.href);
+    if (url.origin !== location.origin || url.pathname !== location.pathname) return;   // another page: load normally
+    if (url.search === location.search) return;     // only a #jump on this page: the browser does that itself
+    e.preventDefault();
+    if (busy) return;
+    var hash = url.hash;
+    url.hash = "";
+    busyStart(a);
+    fetchPage(url.href, { credentials: "same-origin", headers: { "X-Requested-With": "swap" } })
+      .then(function (out) {
+        if (out.load) { location.assign(a.href); return; }
+        swapIn(out.doc, out.url, "get", hash);
+      })
+      .catch(function () { location.assign(a.href); })    // anything wrong: just follow the link
+      .then(function () { busyEnd(a); });
+  });
 
   document.addEventListener("submit", function (e) {
     var form = e.target;
@@ -845,7 +910,6 @@ window.StrideBoard.ready(function (root) {
 
     e.preventDefault();
     if (busy) return;              // ignore double taps while saving
-    busy = true;
     var submitter = e.submitter || null;
     var data = formData(form, submitter);
     var request = { credentials: "same-origin", headers: { "X-Requested-With": "swap" } };
@@ -857,43 +921,25 @@ window.StrideBoard.ready(function (root) {
     }
     url.hash = "";
     form.classList.add("swap-busy");
-    if (submitter) submitter.setAttribute("aria-busy", "true");
-    document.documentElement.classList.add("swapping");
-    var answered = null;           // the page the server sent back, once it has answered
+    busyStart(submitter);
 
-    fetch(url.href, request)
-      .then(function (res) {
-        answered = new URL(res.url);
-        var type = res.headers.get("Content-Type") || "";
-        if (!res.ok) throw new Error("refused");                 // e.g. an expired form: let the browser show it
-        if (type.indexOf("text/html") === -1) throw new Error("not a page");
-        return res.text();
-      })
-      .then(function (html) {
-        var doc = new DOMParser().parseFromString(html, "text/html");
-        var fresh = doc.getElementById("main");
-        var samePage = answered.pathname === location.pathname;
-        if (!fresh || !doc.body.hasAttribute("data-swap") || !samePage ||
-            look(doc) !== look(document) || fresh.querySelector(NEEDS_FULL_LOAD)) {
-          location.replace(answered.href);   // just a normal load of the page the server picked
-          return;
-        }
-        swapIn(doc, answered, method);
+    fetchPage(url.href, request)
+      .then(function (out) {
+        if (out.load) { location.replace(out.load.href); return; }   // a normal load of the page the server picked
+        swapIn(out.doc, out.url, method);
       })
       .catch(function (err) {
-        if (answered && err && err.message === "refused") { nativeSubmit(form, submitter); return; }
-        if (answered) { location.replace(answered.href); return; }
+        if (err && err.refused) { nativeSubmit(form, submitter); return; }   // e.g. an expired form: let the browser show it
+        if (err && err.url) { location.replace(err.url.href); return; }      // saved, but the answer couldn't be shown
         nativeSubmit(form, submitter);       // couldn't reach the server: try the ordinary way
       })
       .then(function () {
-        busy = false;
         form.classList.remove("swap-busy");
-        if (submitter) submitter.removeAttribute("aria-busy");
-        document.documentElement.classList.remove("swapping");
+        busyEnd(submitter);
       });
   });
 
-  // Back/forward after a swapped search (the leaderboard's period): load that page normally.
+  // Back/forward after a swapped link or search (studio tabs, leaderboard period): load that page normally.
   window.addEventListener("popstate", function () { if (pushed) location.reload(); });
 })(window.StrideBoard);
 

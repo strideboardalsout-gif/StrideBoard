@@ -1559,9 +1559,3 @@ html.swapping { cursor: progress; }
   :root.glass[data-theme="auto"] .swap-toast .flash { background: #141A30 !important; color: #F2F4F8; }
 }
 
-/* Moving between pages: a quick cross-fade instead of a white flash (browsers that support it) */
-@media (prefers-reduced-motion: no-preference) {
-  @view-transition { navigation: auto; }
-}
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: .18s; }
-:root.fast::view-transition-old(root), :root.fast::view-transition-new(root) { animation: none; }
