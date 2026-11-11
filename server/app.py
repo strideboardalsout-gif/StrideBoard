@@ -64,7 +64,12 @@ RECORD_VERB = {"steps": "Walk {n} steps in one day", "pushups": "Do {n} push-ups
 WATER_TARGET = 8  # glasses a day: placeholder suggestion, team to verify like the step goals
 # Bump this whenever style.css, app.js or the font change, so phones load the new
 # files instead of their saved copy (the service worker picks it up automatically).
-ASSET_VERSION = "71"
+ASSET_VERSION = "72"
+
+# Pages whose forms save without reloading: app.js sends the form in the background and
+# swaps in the new <main> (see "Save without reloading" in app.js). Other pages (login,
+# sign-up, admin) keep ordinary page loads.
+SWAP_PAGES = {"dashboard", "log", "challenges", "settings", "leaderboard", "badges"}
 
 # Pages that still work after a parent's daily time limit is used up.
 TIME_FREE = {"logout", "static", "service_worker", "offline", "privacy", "parent", "board"}
@@ -340,7 +345,7 @@ def add_template_helpers(app):
                 "today_label": f"{now:%A} {now.day} {now:%B}",
                 "BADGES": BADGES, "MOODS": MOODS, "stand_due": stand_due(),
                 "INACTIVE_MINUTES": config.INACTIVE_MINUTES, "INACTIVE_MAX_STEPS": config.INACTIVE_MAX_STEPS,
-                "ASSET_VERSION": ASSET_VERSION, "TRACK_LOOK": TRACK_LOOK,
+                "ASSET_VERSION": ASSET_VERSION, "SWAP_PAGES": SWAP_PAGES, "TRACK_LOOK": TRACK_LOOK,
                 "creature": creature, "avatar_sheet": avatar_sheet, "my_build": my_build(),
                 "theme": current_theme(), "THEMES": THEMES, "fast": fast_mode(), "page_theme": page_theme(),
                 "fixed_mode": fixed_mode(), "BREAK_SECONDS": config.BREAK_SECONDS,
