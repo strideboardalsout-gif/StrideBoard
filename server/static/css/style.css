@@ -1548,6 +1548,16 @@ html.swapping { cursor: progress; }
 .swap-toast.leaving { opacity: 0; transform: translate(-50%, -8px); transition: opacity .3s, transform .3s; }
 @keyframes swap-toast-in { from { opacity: 0; transform: translate(-50%, -10px); } }
 .fast .swap-toast, .lite .swap-toast { animation: none; }
+/* Glass look (Apple devices): message boxes are see-through, which is fine in the page but not
+   floating over other content (a backdrop blur still lets bright buttons show through), so the
+   toast gets solid colours. */
+.glass .swap-toast .flash { background: #FFFFFF !important; }
+.glass .swap-toast .flash-error { background: #FBE3E1 !important; }
+.glass .swap-toast .flash-badge { background: #17181C !important; color: #fff; }
+:root.glass[data-theme="dark"] .swap-toast .flash { background: #141A30 !important; color: #F2F4F8; }
+@media (prefers-color-scheme: dark) {
+  :root.glass[data-theme="auto"] .swap-toast .flash { background: #141A30 !important; color: #F2F4F8; }
+}
 
 /* Moving between pages: a quick cross-fade instead of a white flash (browsers that support it) */
 @media (prefers-reduced-motion: no-preference) {
