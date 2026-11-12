@@ -1210,6 +1210,8 @@ html.glass { --g0: #EEF1F6; --g1: #B9E6C9; --g2: #C7CBFF; --g3: #FFD3C2; --g4: #
 :root.glass[data-theme="dark"] .bottom-nav a.active { background: rgba(255, 255, 255, .16) !important; color: #fff !important; }
 .glass .side { background: rgba(255, 255, 255, .32) !important; -webkit-backdrop-filter: blur(26px); backdrop-filter: blur(26px); border-right: 1px solid rgba(255, 255, 255, .6); }
 .glass .block { border-color: rgba(18, 19, 26, .18) !important; background: rgba(255, 255, 255, .25); }
+.glass .block.on { background: var(--peri); }               /* filled blocks stay filled (the line above would make them glass) */
+.glass .blocks-blue .block.on { background: var(--blue); }
 .glass .week-track { background: rgba(255, 255, 255, .3) !important; }
 .glass .footer { border-top-color: rgba(255, 255, 255, .5) !important; }
 .glass .bottom-nav.nav-mini { border-radius: 34px !important; }
