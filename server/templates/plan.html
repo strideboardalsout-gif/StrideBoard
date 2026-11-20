@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}My plan{% endblock %}
+{% block content %}
+
+{% if editing %}
+{% call m.page_head("Make your", "plan", "5 quick questions. You can change them any time.") %}{% endcall %}
+
+<form method="post" class="plan-setup">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="action" value="plan_save">
+
+  <section class="card card-soft">
+    <fieldset class="role-pick">
+      <legend class="plan-q"><span class="plan-num">1</span> How active are you now?</legend>
+      <div class="role-options plan-options-3">
+        {% for value, label in ACTIVITY.items() %}
+        <label class="role-option">
+          <input type="radio" name="activity" value="{{ value }}" required
+                 {% if (current and current.activity == value) or (not current and value == 'new') %}checked{% endif %}>
+          <span class="role-card"><strong>{{ label }}</strong>
+            <span class="small muted">{{ {'new': 'Small challenges to start', 'some': 'Some bigger ones', 'very': 'Mostly bigger ones'}[value] }}</span></span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+  </section>
+
+  <section class="card card-soft">
+    <fieldset class="role-pick">
+      <legend class="plan-q"><span class="plan-num">2</span> How many days a week?</legend>
+      <div class="role-options plan-options-5">
+        {% for value in DAYS %}
+        <label class="role-option">
+          <input type="radio" name="days" value="{{ value }}" required
+                 {% if (current and current.days == value) or (not current and value == 3) %}checked{% endif %}>
+          <span class="role-card"><strong>{{ value }}</strong><span class="small muted">days</span></span>
+        </label>
+        {% endfor %}
+      </div>
+      <p class="small muted">The other days are rest days. Rest is part of getting stronger.</p>
+    </fieldset>
+  </section>
+
+  <section class="card card-soft">
+    <fieldset class="role-pick">
+      <legend class="plan-q"><span class="plan-num">3</span> How long each day?</legend>
+      <div class="role-options plan-options-3">
+        {% for value, tasks in MINUTES.items() %}
+        <label class="role-option">
+          <input type="radio" name="minutes" value="{{ value }}" required
+                 {% if (current and current.minutes == value) or (not current and value == 10) %}checked{% endif %}>
+          <span class="role-card"><strong>{{ value }} min</strong><span class="small muted">{{ tasks }} challenges</span></span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+  </section>
+
+  <section class="card card-soft">
+    <fieldset class="role-pick">
+      <legend class="plan-q"><span class="plan-num">4</span> What do you want to focus on?</legend>
+      <div class="role-options plan-options-3">
+        {% for value, label in FOCUS.items() %}
+        <label class="role-option">
+          <input type="radio" name="focus" value="{{ value }}" required
+                 {% if (current and current.focus == value) or (not current and value == 'mix') %}checked{% endif %}>
+          <span class="role-card">{{ m.icon({'steps': 'foot', 'strength': 'pushup', 'mix': 'spark'}[value], 22) }}<strong>{{ label }}</strong></span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+  </section>
+
+  <section class="card card-soft">
+    <fieldset class="choice-list">
+      <legend class="plan-q"><span class="plan-num">5</span> Anything that hurts or you'd rather skip?</legend>
+      {% set skipped = current.avoid.split(',') if current else [] %}
+      {% for value, (label, _) in AVOID.items() %}
+      <label class="choice"><input type="checkbox" name="avoid" value="{{ value }}" {% if value in skipped %}checked{% endif %}>
+        <span><strong>{{ label }}</strong></span></label>
+      {% endfor %}
+      <p class="small muted">Leave all unticked if everything's fine. If something hurts, skip it here and check with a doctor before doing it.</p>
+    </fieldset>
+  </section>
+
+  <div class="plan-actions">
+    <button class="btn btn-dark btn-block" type="submit">{{ m.icon('check', 18) }} {{ 'Save my answers' if current else 'Make my plan' }}</button>
+    {% if current %}<a class="btn btn-outline btn-block" href="{{ url_for('plan') }}">Cancel</a>{% endif %}
+  </div>
+</form>
+
+{% else %}
+{% call m.page_head("My", "plan", state.summary) %}
+  <a class="btn btn-outline" href="{{ url_for('plan', edit=1) }}">{{ m.icon('sliders', 18) }} Change my answers</a>
+{% endcall %}
+
+{% if state.change == 'up' %}
+<div class="nudge nudge-pink"><span class="icon-circle">{{ m.icon('trend') }}</span>
+  <div class="nudge-text"><strong>Stepped up!</strong><span>You kept up last week, so this week is a little harder.</span></div></div>
+{% elif state.change == 'down' %}
+<div class="nudge nudge-blue"><span class="icon-circle">{{ m.icon('info') }}</span>
+  <div class="nudge-text"><strong>A bit easier this week</strong><span>Last week was quiet. That's fine: the plan follows you.</span></div></div>
+{% endif %}
+
+{% if mini.active %}
+<p class="small"><strong>{{ mini.active.label }} is running.</strong> <a href="{{ url_for('challenges') }}#mini">Go to it</a> to finish it first.</p>
+{% endif %}
+
+<div class="plan-week">
+  {% for day in state.week %}
+  <section class="card {{ 'card-peri' if day.today else 'card-soft' }} plan-day{% if day.past %} past{% endif %}" aria-label="{{ day.label }}{% if day.today %} (today){% endif %}">
+    <div class="card-title-row">
+      <h2 class="card-title">{{ 'Today' if day.today else day.label }}</h2>
+      {% if day.rest %}<span class="chip">Rest</span>
+      {% else %}{% set n = day.tasks|selectattr('done')|list|length %}<span class="chip{% if n == day.tasks|length %} chip-dark{% endif %}">{{ n }}/{{ day.tasks|length }}</span>{% endif %}
+    </div>
+    {% if day.rest %}
+    <p class="small muted">Rest day. A walk still counts towards your steps.</p>
+    {% else %}
+    <ul class="history plan-tasks">
+      {% for task in day.tasks %}
+      {% set ic, tone = TRACK_LOOK[task.track] %}
+      <li class="{{ 'done' if task.done }}">
+        {{ m.badge_circle(ic, tone, True, 18) }}
+        <span class="h-date"><span>{{ task.label }}</span><span class="small muted">+{{ task.exp }} EXP</span></span>
+        {% if task.done %}<span class="chip">{{ m.icon('check', 14) }} Done</span>
+        {% elif day.today and not mini.active %}
+        <form method="post" action="{{ url_for('challenges') }}" class="inline-form" data-reload>
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <input type="hidden" name="key" value="{{ task.key }}">
+          <button class="btn btn-dark btn-sm" type="submit" name="action" value="mini_start">Start</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  {% endfor %}
+</div>
+
+<section class="card card-soft">
+  <p class="small">Each task is a mini challenge, so it earns EXP like any other. Finish most of this week's tasks
+    and next week steps up a little. If something hurts, stop, skip it in your answers, and check with a doctor.
+    {% if state.avoid %}Skipping: {{ state.avoid|join(', ') }}.{% endif %}</p>
+  <form method="post" class="inline-form" data-confirm="Stop your plan? Your EXP and level stay the same.">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <button class="btn btn-outline btn-sm" type="submit" name="action" value="plan_stop">Stop my plan</button>
+  </form>
+</section>
+{% endif %}
+
+{% endblock %}

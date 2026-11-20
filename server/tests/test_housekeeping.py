@@ -32,22 +32,31 @@ def test_exp_balance_and_history_survive_merging(conn):
     balance = data.exp_balance(conn, uid)
     done = data.tidy_up(conn, TODAY)
     assert data.exp_balance(conn, uid) == balance == 40 * 10 - 150 + 25
-    assert count(conn, "exp_ledger", uid) == 2          # one combined row + the recent one
-    assert done["exp_ledger"] == 40      # 41 old rows became 1
+    earned = data.lifetime_exp(conn, uid)
+    assert count(conn, "exp_ledger", uid) == 3          # combined earned + the spend + the recent one
+    assert done["exp_ledger"] == 39      # 40 old earned rows became 1 (one spend: nothing to merge)
+    assert earned == 40 * 10 + 25
     assert data.exp_history(conn, uid)[0]["reason"] == "Recent"
     # Running it again changes nothing.
     assert data.tidy_up(conn, TODAY)["exp_ledger"] == 0
     assert data.exp_balance(conn, uid) == balance
+    assert data.lifetime_exp(conn, uid) == earned       # the level survives too
 
 
-def test_exp_that_cancels_out_leaves_no_row(conn):
+def test_earned_and_spent_exp_stay_apart_so_the_level_survives(conn):
     uid = make_user(conn)
-    for amount in (100, -100):
+    for amount in (100, 50, -100, -30):
         conn.execute("INSERT INTO exp_ledger (user_id, amount, reason, created_at) VALUES (?, ?, 'x', ?)",
                      (uid, amount, stamp(80)))
+    conn.execute("INSERT INTO exp_ledger (user_id, amount, reason, created_at) VALUES (?, 400, 'refund: hat left the shop', ?)",
+                 (uid, stamp(80)))
+    conn.execute("INSERT INTO exp_ledger (user_id, amount, reason, created_at) VALUES (?, 5, 'refund: other', ?)",
+                 (uid, stamp(81)))
     conn.commit()
     data.tidy_up(conn, TODAY)
-    assert count(conn, "exp_ledger", uid) == 0 and data.exp_balance(conn, uid) == 0
+    assert count(conn, "exp_ledger", uid) == 3          # earned, spent, refunds
+    assert data.exp_balance(conn, uid) == 100 + 50 - 100 - 30 + 400 + 5
+    assert data.lifetime_exp(conn, uid) == 150          # refunds aren't "earned"
 
 
 def test_exercise_totals_and_best_days_survive_merging(conn):
