@@ -25,7 +25,7 @@ USERNAME_RE = re.compile(r"^[a-z0-9_.-]{3,30}$")
 # pin_hash is never selected for anything that leaves this file.
 USER_FIELDS = ("id, username, display_name, role, department, age_band, api_token, "
                "daily_goal, goal_is_custom, created_at, avatar, avatar_color, rename_notice, parent_status, "
-               "board_name, time_limit, name_review")
+               "board_name, time_limit, name_review, rank_side")
 PLAYER_ROLES = ("teacher", "student")   # admins never appear on boards or in stats
 # Someone timed out or banned (Admin > Moderation) is left off the boards until it ends.
 NOT_BLOCKED = "(u.blocked_until IS NULL OR u.blocked_until <= ?)"
@@ -2052,7 +2052,7 @@ def delete_people(conn, user_ids, acting_id=None, block_emails=True, reason="Del
 # Everything a person has done, table by table. A reset empties these for one person.
 PERSONAL_TABLES = ("steps", "step_samples", "moods", "water", "activities", "exercises",
                    "badges", "exp_ledger", "avatar_owned", "avatar_equipped", "mini_runs",
-                   "daily_rewards", "screen_time")
+                   "daily_rewards", "screen_time", "plans")
 
 
 def reset_person(conn, user_id):
@@ -2425,18 +2425,23 @@ def tidy_up(conn, today=None):
         merged += g["n"] - 1
     done["exercises"] = merged
 
-    # EXP: merge each person's older gains and spends into one row. The balance stays the same.
+    # EXP: merge each person's older rows into one row per kind: earned, spent and refunds.
+    # Kept apart so both the balance and the lifetime EXP earned (your level) stay the same.
     merged = 0
+    kind = ("CASE WHEN amount < 0 THEN 'spent' WHEN reason LIKE 'refund:%' THEN 'refund' "
+            "ELSE 'earned' END")
+    labels = {"earned": "Earlier EXP earned (combined)", "spent": "Earlier EXP spent (combined)",
+              "refund": "refund: earlier refunds (combined)"}
     groups = conn.execute(
-        "SELECT user_id, SUM(amount) AS total, MAX(created_at) AS at, COUNT(*) AS n "
-        "FROM exp_ledger WHERE created_at < ? GROUP BY user_id HAVING COUNT(*) > 1",
+        f"SELECT user_id, {kind} AS kind, SUM(amount) AS total, MAX(created_at) AS at, COUNT(*) AS n "
+        f"FROM exp_ledger WHERE created_at < ? GROUP BY user_id, kind HAVING COUNT(*) > 1",
         (before(config.TIDY_EXP_DAYS),)).fetchall()
     for g in groups:
-        conn.execute("DELETE FROM exp_ledger WHERE user_id = ? AND created_at < ?",
-                     (g["user_id"], before(config.TIDY_EXP_DAYS)))
+        conn.execute(f"DELETE FROM exp_ledger WHERE user_id = ? AND created_at < ? AND {kind} = ?",
+                     (g["user_id"], before(config.TIDY_EXP_DAYS), g["kind"]))
         if g["total"]:
             conn.execute("INSERT INTO exp_ledger (user_id, amount, reason, created_at) VALUES (?, ?, ?, ?)",
-                         (g["user_id"], g["total"], "Earlier EXP (combined)", g["at"]))
+                         (g["user_id"], g["total"], labels[g["kind"]], g["at"]))
         merged += g["n"] - (1 if g["total"] else 0)
     done["exp_ledger"] = merged
     conn.commit()
@@ -2501,3 +2506,249 @@ def decide_name(conn, user_id, approve, acting_id=None):
         return None
     return delete_people(conn, [user_id], acting_id=acting_id, reason="Name not approved")[0]
 
+
+
+# =====================================================================
+# Levels and ranks
+# =====================================================================
+
+def lifetime_exp(conn, user_id):
+    """All the EXP someone has ever earned: gains only, so spending never lowers it; refunds
+    for items taken out of the shop don't count."""
+    return conn.execute("SELECT COALESCE(SUM(amount), 0) FROM exp_ledger WHERE user_id = ? "
+                        "AND amount > 0 AND reason NOT LIKE 'refund:%'", (user_id,)).fetchone()[0]
+
+
+def level_from_exp(total):
+    """{"level", "into" (EXP into this level), "need" (EXP this level takes), "percent", "max"}."""
+    level, left = 1, max(0, int(total))
+    while level < config.LEVEL_MAX:
+        need = config.LEVEL_BASE + config.LEVEL_STEP * (level - 1)
+        if left < need:
+            return {"level": level, "into": left, "need": need, "to_next": need - left,
+                    "percent": left * 100 // need, "max": False}
+        left -= need
+        level += 1
+    return {"level": level, "into": 0, "need": 0, "to_next": 0, "percent": 100, "max": True}
+
+
+def rank_for(level, side):
+    """{"name", "index" (0-5, or -1 when unsorted), "next_name", "next_level"} for a level and side."""
+    ranks = config.SIDES[side]["ranks"] if side in config.SIDES else None
+    index = -1
+    if ranks:
+        for i, start in enumerate(config.RANK_LEVELS):
+            if level >= start:
+                index = i
+    name = ranks[index] if ranks and index >= 0 else config.UNSORTED_RANK
+    nxt = index + 1
+    return {"name": name, "index": index,
+            "next_name": ranks[nxt] if ranks and nxt < len(ranks) else None,
+            "next_level": config.RANK_LEVELS[nxt] if nxt < len(config.RANK_LEVELS) else None}
+
+
+def level_info(conn, user_id):
+    """Everything the level card needs."""
+    row = _require_user(conn, user_id)
+    total = lifetime_exp(conn, user_id)
+    info = level_from_exp(total)
+    side = row["rank_side"] if row["rank_side"] in config.SIDES else None
+    info.update(total=total, side=side, side_name=config.SIDES[side]["name"] if side else None,
+                rank=rank_for(info["level"], side),
+                can_pick=info["level"] >= config.SIDE_LEVEL,
+                must_pick=info["level"] >= config.SIDE_LEVEL and side is None)
+    return info
+
+
+def set_side(conn, user_id, side):
+    """Pick (or switch) your side. Open from config.SIDE_LEVEL; your level never changes."""
+    if side not in config.SIDES:
+        raise ValueError("pick the Stride Reaper or The Strider")
+    if level_info(conn, user_id)["level"] < config.SIDE_LEVEL:
+        raise ValueError(f"you can pick a side from level {config.SIDE_LEVEL}")
+    conn.execute("UPDATE users SET rank_side = ? WHERE id = ?", (side, user_id))
+    conn.commit()
+    return config.SIDES[side]["name"]
+
+
+def ranks_for(conn, user_ids):
+    """{user_id: {"level", "side", "rank"}} for many people at once (leaderboard rows)."""
+    ids = [u for u in set(user_ids) if u]
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    earned = {r[0]: r[1] for r in conn.execute(
+        f"SELECT user_id, SUM(amount) FROM exp_ledger WHERE user_id IN ({marks}) AND amount > 0 "
+        f"AND reason NOT LIKE 'refund:%' GROUP BY user_id", ids)}
+    sides = {r[0]: r[1] for r in conn.execute(f"SELECT id, rank_side FROM users WHERE id IN ({marks})", ids)}
+    out = {}
+    for uid in ids:
+        level = level_from_exp(earned.get(uid, 0))["level"]
+        side = sides.get(uid) if sides.get(uid) in config.SIDES else None
+        out[uid] = {"level": level, "side": side, "rank": rank_for(level, side)["name"]}
+    return out
+
+
+# =====================================================================
+# Personal plan
+# =====================================================================
+
+_STRENGTH = ("pushups", "squats", "planks", "jumping_jacks")
+_START_STEP = {"new": 0, "some": 1, "very": 2}
+
+
+def _sizes():
+    """{track: (small key, big key)} from the mini challenges (by amount)."""
+    by_track = {}
+    for key, c in config.MINI_CHALLENGES.items():
+        by_track.setdefault(c["track"], []).append((c["amount"], key))
+    return {t: tuple(k for _, k in sorted(v)) for t, v in by_track.items()}
+
+
+def _monday(day):
+    return day - timedelta(days=day.weekday())
+
+
+def get_plan(conn, user_id):
+    row = conn.execute("SELECT * FROM plans WHERE user_id = ?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def save_plan(conn, user_id, activity, days, minutes, focus, avoid, today=None):
+    """Make (or remake) someone's plan from their set-up answers."""
+    today = _today(today)
+    _require_user(conn, user_id)
+    if activity not in config.PLAN_ACTIVITY:
+        raise ValueError("pick how active you are now")
+    try:
+        days, minutes = int(days), int(minutes)
+    except (TypeError, ValueError):
+        raise ValueError("pick how many days and minutes")
+    if days not in config.PLAN_DAYS:
+        raise ValueError("pick 2 to 6 days a week")
+    if minutes not in config.PLAN_MINUTES:
+        raise ValueError("pick 5, 10 or 20 minutes")
+    if focus not in config.PLAN_FOCUS:
+        raise ValueError("pick what you want to focus on")
+    avoid = sorted({a for a in (avoid or []) if a in config.PLAN_AVOID})
+    now = today.isoformat() + local_now_iso()[10:]       # the plan's day, with the time of day
+    conn.execute(
+        "INSERT INTO plans (user_id, activity, days, minutes, focus, avoid, step, reviewed_week, "
+        "last_change, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET activity = excluded.activity, days = excluded.days, "
+        "minutes = excluded.minutes, focus = excluded.focus, avoid = excluded.avoid, step = excluded.step, "
+        "reviewed_week = excluded.reviewed_week, last_change = NULL, updated_at = excluded.updated_at",
+        (user_id, activity, days, minutes, focus, ",".join(avoid), _START_STEP[activity],
+         _monday(today).isoformat(), now, now))
+    conn.commit()
+
+
+def stop_plan(conn, user_id):
+    conn.execute("DELETE FROM plans WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+
+def plan_tasks(plan, day, step=None):
+    """The mini challenge keys for one day of a plan ([] on rest days)."""
+    step = plan["step"] if step is None else step
+    weekdays = config.PLAN_WEEKDAYS[plan["days"]]
+    if day.weekday() not in weekdays:
+        return []
+    k = weekdays.index(day.weekday())             # which training day of the week this is
+    n = config.PLAN_MINUTES[plan["minutes"]]
+    dropped = {t for a in plan["avoid"].split(",") if a in config.PLAN_AVOID
+               for t in config.PLAN_AVOID[a][1]}
+    strength = [t for t in _STRENGTH if t not in dropped]
+    walks = {"steps": n - 1 if n > 2 else 1, "strength": 1 if n >= 5 else 0,
+             "mix": max(1, n // 2)}[plan["focus"]]
+    if not strength:
+        walks = n
+    sizes, keys, used, per_track = _sizes(), [], {}, {}
+    for j in range(n):
+        if j < walks:
+            track = "steps"
+        else:
+            track = strength[(k + j - walks) % len(strength)]
+            if per_track.get(track, 0) >= 2:       # at most two of one exercise a day: walk instead
+                track = "steps"
+        per_track[track] = per_track.get(track, 0) + 1
+        big = step >= 2 or (step == 1 and j % 2 == 1)
+        small, large = sizes[track]
+        options = [large, small] if big else [small, large]
+        if track != "steps":
+            options += list(sizes["steps"])        # every size used up today: a walk instead
+        key = next((o for o in options if used.get(o, 0) < config.MINI_DAILY_LIMIT), options[0])
+        used[key] = used.get(key, 0) + 1
+        keys.append(key)
+    # Walks last on strength days, first on step days.
+    return sorted(keys, key=lambda x: (config.MINI_CHALLENGES[x]["track"] == "steps") != (plan["focus"] == "steps"))
+
+
+def _ticked(conn, user_id, day, keys):
+    """[True/False] for each task: a finished mini run of that challenge that day ticks one off."""
+    left = _done_today(conn, user_id, day.isoformat())
+    out = []
+    for key in keys:
+        out.append(left.get(key, 0) > 0)
+        if out[-1]:
+            left[key] -= 1
+    return out
+
+
+def _review_week(conn, user_id, plan, today):
+    """Once a week: a little harder after a good week, a little easier after a quiet one."""
+    monday = _monday(today)
+    if plan["reviewed_week"] >= monday.isoformat():
+        return plan
+    last_monday = monday - timedelta(days=7)
+    started = date.fromisoformat(plan["created_at"][:10])
+    planned = done = 0
+    for i in range(7):
+        day = last_monday + timedelta(days=i)
+        if day < started:
+            continue
+        keys = plan_tasks(plan, day)
+        planned += len(keys)
+        done += sum(_ticked(conn, user_id, day, keys))
+    step, change = plan["step"], None
+    if planned and done / planned >= config.PLAN_STEP_UP and step < config.PLAN_MAX_STEP:
+        step, change = step + 1, "up"
+    elif planned and done / planned < config.PLAN_EASE_OFF and step > 0:
+        step, change = step - 1, "down"
+    conn.execute("UPDATE plans SET step = ?, reviewed_week = ?, last_change = ? WHERE user_id = ?",
+                 (step, monday.isoformat(), change, user_id))
+    conn.commit()
+    return get_plan(conn, user_id)
+
+
+def plan_state(conn, user_id, today=None):
+    """The plan for Home and the plan page, or None without one.
+
+    {"plan", "today": [{"key", "label", "exp", "track", "done"}], "done", "total",
+     "week": [{"date", "label", "today", "rest", "tasks": [...]}], "change": 'up'|'down'|None}
+    """
+    today = _today(today)
+    plan = get_plan(conn, user_id)
+    if not plan:
+        return None
+    plan = _review_week(conn, user_id, plan, today)
+
+    def tasks(day):
+        keys = plan_tasks(plan, day)
+        ticks = _ticked(conn, user_id, day, keys) if day <= today else [False] * len(keys)
+        return [{"key": k, "label": mini_label(k), "exp": config.MINI_CHALLENGES[k]["exp"],
+                 "track": config.MINI_CHALLENGES[k]["track"], "done": t} for k, t in zip(keys, ticks)]
+
+    monday = _monday(today)
+    week = []
+    for i in range(7):
+        day = monday + timedelta(days=i)
+        items = tasks(day)
+        week.append({"date": day.isoformat(), "label": day.strftime("%a"), "today": day == today,
+                     "past": day < today, "rest": not items, "tasks": items})
+    todays = tasks(today)
+    avoid = [config.PLAN_AVOID[a][0] for a in plan["avoid"].split(",") if a in config.PLAN_AVOID]
+    return {"plan": plan, "today": todays, "done": sum(t["done"] for t in todays), "total": len(todays),
+            "week": week, "change": plan["last_change"] if plan["reviewed_week"] == monday.isoformat() else None,
+            "avoid": avoid, "summary": f"{plan['days']} days a week · {plan['minutes']} minutes · "
+                                       f"{config.PLAN_FOCUS[plan['focus']].lower()}"}

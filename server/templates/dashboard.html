@@ -166,6 +166,81 @@
   </section>
 </div>
 
+<div class="row row-even">
+
+  {# ---- Level and rank: from all the EXP you've ever earned (spending never lowers it) ---- #}
+  <section class="card card-soft level-card{% if level.side %} side-{{ level.side }}{% endif %}" aria-labelledby="level-h">
+    <div class="card-head">
+      <span class="icon-circle">{% if level.side == 'reaper' %}{{ m.icon('ghost') }}{% elif level.side == 'strider' %}{{ m.icon('bolt') }}{% else %}{{ m.icon('star') }}{% endif %}</span>
+      <h2 id="level-h">Level {{ level.level }}</h2>
+      {{ m.rank_chip(level) }}
+    </div>
+    {% if level.max %}
+    <p class="small"><strong>Top level reached.</strong> {{ level.total|num }} EXP earned in all.</p>
+    {% else %}
+    <div class="bar level-bar" role="progressbar" aria-label="EXP to level {{ level.level + 1 }}"
+         aria-valuemin="0" aria-valuemax="{{ level.need }}" aria-valuenow="{{ level.into }}"><span style="width: {{ level.percent }}%"></span></div>
+    <p class="small"><strong>{{ level.to_next|num }} EXP</strong> to level {{ level.level + 1 }}.
+      {% if level.side and level.rank.next_name %}{{ level.rank.next_name }} at level {{ level.rank.next_level }}.{% endif %}</p>
+    {% endif %}
+    {% if level.must_pick %}
+    <p class="small"><strong>Pick your side.</strong> Your rank grows with your level. You can switch any time.</p>
+    {% elif not level.can_pick %}
+    <p class="small muted">At level {{ SIDE_LEVEL }} you pick a side: the Stride Reaper or The Strider.</p>
+    {% endif %}
+    {% if level.can_pick %}
+    <form method="post" action="{{ url_for('pick_side') }}" class="side-pick">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      {% for key, side in SIDES.items() %}
+      <button class="side-btn side-btn-{{ key }}{% if level.side == key %} chosen{% endif %}" type="submit" name="side" value="{{ key }}"
+              {% if level.side == key %}aria-pressed="true" disabled{% else %}aria-pressed="false"{% endif %}>
+        {{ m.icon('ghost' if key == 'reaper' else 'bolt', 20) }}
+        <span><strong>{{ side.name }}</strong><span class="small">{{ side.ranks[0] }} → {{ side.ranks[-1] }}</span></span>
+      </button>
+      {% endfor %}
+    </form>
+    {% endif %}
+  </section>
+
+  {# ---- Today's plan (optional) ---- #}
+  <section class="card card-soft plan-card" aria-labelledby="plan-h">
+    <div class="card-head">
+      <span class="icon-circle">{{ m.icon('calendar') }}</span>
+      <h2 id="plan-h">{% if plan %}Today's plan{% else %}Your own plan{% endif %}</h2>
+      {% if plan and plan.total %}<span class="chip chip-dark">{{ plan.done }}/{{ plan.total }} done</span>{% endif %}
+    </div>
+    {% if not plan %}
+    <p class="small">Answer 5 quick questions and get a week of mini challenges made for you. It gets a little harder when you keep up.</p>
+    <a class="btn btn-dark" href="{{ url_for('plan') }}">{{ m.icon('play', 16) }} Make my plan</a>
+    {% elif not plan.total %}
+    <p class="small"><strong>Rest day.</strong> Rest is part of the plan. A walk still counts towards your steps.</p>
+    <a class="btn btn-outline" href="{{ url_for('plan') }}">See my week</a>
+    {% else %}
+    {% if plan.change == 'up' %}<p class="small"><strong>Stepped up!</strong> You kept up last week, so this week is a little harder.</p>
+    {% elif plan.change == 'down' %}<p class="small">Last week was quiet, so this week is a little easier.</p>{% endif %}
+    <ul class="history plan-tasks">
+      {% for task in plan.today %}
+      {% set ic, tone = TRACK_LOOK[task.track] %}
+      <li class="{{ 'done' if task.done }}">
+        {{ m.badge_circle(ic, tone, True, 18) }}
+        <span class="h-date"><span>{{ task.label }}</span><span class="small muted">+{{ task.exp }} EXP</span></span>
+        {% if task.done %}
+        <span class="chip">{{ m.icon('check', 14) }} Done</span>
+        {% else %}
+        <form method="post" action="{{ url_for('challenges') }}" class="inline-form" data-reload>
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <input type="hidden" name="key" value="{{ task.key }}">
+          <button class="btn btn-dark btn-sm" type="submit" name="action" value="mini_start">Start</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <a class="btn btn-outline" href="{{ url_for('plan') }}" style="margin-top:10px">See my week</a>
+    {% endif %}
+  </section>
+</div>
+
 <div class="row row-wide-left">
 
   {# ---- Stage 2: move ---- #}

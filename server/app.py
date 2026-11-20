@@ -64,12 +64,12 @@ RECORD_VERB = {"steps": "Walk {n} steps in one day", "pushups": "Do {n} push-ups
 WATER_TARGET = 8  # glasses a day: placeholder suggestion, team to verify like the step goals
 # Bump this whenever style.css, app.js or the font change, so phones load the new
 # files instead of their saved copy (the service worker picks it up automatically).
-ASSET_VERSION = "75"
+ASSET_VERSION = "76"
 
 # Pages whose forms save without reloading: app.js sends the form in the background and
 # swaps in the new <main> (see "Save without reloading" in app.js). Other pages (login,
 # sign-up, admin) keep ordinary page loads.
-SWAP_PAGES = {"dashboard", "log", "challenges", "settings", "leaderboard", "badges"}
+SWAP_PAGES = {"dashboard", "log", "challenges", "settings", "leaderboard", "badges", "plan"}
 
 # Pages that still work after a parent's daily time limit is used up.
 TIME_FREE = {"logout", "static", "service_worker", "offline", "privacy", "parent", "board"}
@@ -346,6 +346,7 @@ def add_template_helpers(app):
                 "BADGES": BADGES, "MOODS": MOODS, "stand_due": stand_due(),
                 "INACTIVE_MINUTES": config.INACTIVE_MINUTES, "INACTIVE_MAX_STEPS": config.INACTIVE_MAX_STEPS,
                 "ASSET_VERSION": ASSET_VERSION, "SWAP_PAGES": SWAP_PAGES, "TRACK_LOOK": TRACK_LOOK,
+                "SIDES": config.SIDES, "SIDE_LEVEL": config.SIDE_LEVEL,
                 "creature": creature, "avatar_sheet": avatar_sheet, "my_build": my_build(),
                 "theme": current_theme(), "THEMES": THEMES, "fast": fast_mode(), "page_theme": page_theme(),
                 "fixed_mode": fixed_mode(), "BREAK_SECONDS": config.BREAK_SECONDS,
@@ -472,8 +473,10 @@ def glass_bg(colours, unit="vmax"):
 def with_builds(conn, rows):
     """Add each person's avatar parts to leaderboard rows (department rows get none)."""
     builds = data.avatar_builds(conn, [r.get("user_id") for r in rows])
+    ranks = data.ranks_for(conn, [r.get("user_id") for r in rows])
     for r in rows:
         r["build"] = builds.get(r.get("user_id"))
+        r["level"] = ranks.get(r.get("user_id"))
     return rows
 
 
@@ -977,19 +980,64 @@ def add_routes(app):
                                water_due=water_due(d["water_today"]),
                                app_update=android_app_update(),
                                reward=data.reward_status(conn, uid, t),
+                               level=data.level_info(conn, uid), plan=data.plan_state(conn, uid, t),
                                reaper=reaper, strider=strider, strider_look=config.STRIDER_LOOK,
                                reaper_look=config.REAPER_LOOK)
+
+    @app.route("/plan", methods=["GET", "POST"])
+    def plan():
+        """Your personal plan: a short set-up, then a week of mini challenges that grows with you."""
+        conn, uid, t = db.get_db(), g.user["id"], today()
+        if request.method == "POST":
+            action = request.form.get("action")
+            try:
+                if action == "plan_save":
+                    had = data.get_plan(conn, uid) is not None
+                    data.save_plan(conn, uid, request.form.get("activity"), request.form.get("days"),
+                                   request.form.get("minutes"), request.form.get("focus"),
+                                   request.form.getlist("avoid"), t)
+                    flash("Plan updated." if had else "Your plan is ready! Today's tasks are on Home.", "ok")
+                elif action == "plan_stop":
+                    data.stop_plan(conn, uid)
+                    flash("Plan stopped. You can make a new one any time.", "ok")
+                    return redirect(url_for("plan"))
+                else:
+                    raise ValueError("unknown form")
+            except ValueError as e:
+                flash(first_upper(str(e)), "error")
+                return redirect(url_for("plan", edit=1))
+            return redirect(url_for("plan"))
+        state = data.plan_state(conn, uid, t)
+        editing = state is None or request.args.get("edit") == "1"
+        return render_template("plan.html", state=state, editing=editing,
+                               current=state["plan"] if state else None,
+                               ACTIVITY=config.PLAN_ACTIVITY, DAYS=config.PLAN_DAYS,
+                               MINUTES=config.PLAN_MINUTES, FOCUS=config.PLAN_FOCUS, AVOID=config.PLAN_AVOID,
+                               mini=data.mini_state(conn, uid))
+
+    @app.route("/side", methods=["POST"])
+    def pick_side():
+        """Pick or switch your rank side (open from level SIDE_LEVEL)."""
+        try:
+            name = data.set_side(db.get_db(), g.user["id"], request.form.get("side"))
+            flash(f"You're on {name}'s side now.", "badge")
+        except ValueError as e:
+            flash(first_upper(str(e)), "error")
+        return redirect(url_for("dashboard", _anchor="level-h"))
 
     @app.route("/reward", methods=["POST"])
     def claim_reward():
         """The Claim button on Home's tier card: today's login reward."""
+        conn = db.get_db()
+        level_before = data.level_info(conn, g.user["id"])
         try:
-            got = data.claim_daily_reward(db.get_db(), g.user["id"], today())
+            got = data.claim_daily_reward(conn, g.user["id"], today())
             if got.get("swapped"):
                 flash(f"Day {got['day']} reward: you already had {got['label']}, so here's {got['exp']} EXP instead!", "badge")
             else:
                 flash(f"Day {got['day']} reward: {got['label']}!" +
                       (" It's in your Avatar studio." if got["kind"] == "item" else ""), "badge")
+            flash_level_up(conn, g.user["id"], level_before)
         except ValueError as e:
             flash(first_upper(str(e)), "error")
         return redirect(url_for("dashboard", _anchor="tier-h"))
@@ -1085,9 +1133,11 @@ def add_routes(app):
             except ValueError as e:
                 flash(first_upper(str(e)), "error")
             return redirect(url_for("challenges") + "#mini")
+        level_before = data.level_info(conn, uid)
         walk = data.check_walks(conn, uid)
         if walk:
             flash(f"{walk['label']}: done! +{walk['exp']} EXP. You have {walk['balance']:,} EXP.", "badge")
+            flash_level_up(conn, uid, level_before)
         tracks = data.progression(conn, uid)
         badges = all_badges(conn, uid, data.earned_badges(conn, uid), tracks)
         mini = data.mini_state(conn, uid)
@@ -1588,12 +1638,26 @@ def save_log_form(conn, uid, dates):
 
 
 
+def flash_level_up(conn, uid, before):
+    """After EXP comes in: say so if that was a new level, a new rank, or time to pick a side."""
+    after = data.level_info(conn, uid)
+    if after["level"] <= before["level"]:
+        return
+    msg = f"Level up! You're level {after['level']}."
+    if after["side"] and after["rank"]["name"] != before["rank"]["name"]:
+        msg += f" New rank: {after['rank']['name']}."
+    elif after["must_pick"] and not before["can_pick"]:
+        msg += " You can pick your side now: the Stride Reaper or The Strider (on Home)."
+    flash(msg, "badge")
+
+
 def handle_mini(conn, uid):
     """Start, finish or back out of a mini challenge (forms on the Challenges page)."""
     action = request.form.get("action")
     if action == "mini_start":
         data.start_mini(conn, uid, request.form.get("key"))
     elif action == "mini_done":
+        level_before = data.level_info(conn, uid)
         before = {t["key"]: t for t in data.progression(conn, uid)}
         won = data.finish_mini(conn, uid)
         after = {t["key"]: t for t in data.progression(conn, uid)}[won["track"]]
@@ -1606,6 +1670,7 @@ def handle_mini(conn, uid):
                 if lv["earned"] and not o["earned"]]
         if new:
             flash(f"New badge{'s' if len(new) > 1 else ''} unlocked on the {after['name']} track!", "badge")
+        flash_level_up(conn, uid, level_before)
     elif action == "mini_quit":
         label = data.quit_mini(conn, uid)
         flash(f"Backed out of {label}. No worries, try another any time.", "ok")

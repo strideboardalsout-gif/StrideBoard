@@ -1561,3 +1561,53 @@ html.swapping { cursor: progress; }
   :root.glass[data-theme="auto"] .swap-toast .flash { background: #141A30 !important; color: #F2F4F8; }
 }
 
+
+/* ---- Levels and ranks */
+.rank-chip { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; white-space: nowrap;
+  padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; line-height: 1.2;
+  background: var(--white); color: var(--ink); }
+.rank-chip .icon { flex: none; }
+.rank-chip-sm { padding: 2px 8px; font-size: 12px; margin-top: 3px; }
+.rank-who .rank-chip span { color: inherit; font-size: inherit; }
+.rank-reaper { background: #2A2340; color: #E9E2FF; }
+.rank-strider { background: #DCEBFF; color: #123A6B; }
+.card-head .rank-chip { margin-left: auto; }
+.level-bar { margin: 10px 0 6px; }
+.level-bar > span { background: var(--peri); }
+.side-reaper .level-bar > span { background: #6B5CA5; }
+.side-strider .level-bar > span { background: #4C8DF6; }
+.side-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.side-btn { display: flex; align-items: center; gap: 10px; text-align: left; min-height: 56px; padding: 10px 12px;
+  border-radius: 16px; border: 2px solid transparent; font: inherit; cursor: pointer; }
+.side-btn > span { display: flex; flex-direction: column; min-width: 0; }
+.side-btn .small { opacity: .8; }
+.side-btn-reaper { background: #2A2340; color: #E9E2FF; }
+.side-btn-strider { background: #DCEBFF; color: #123A6B; }
+.side-btn.chosen { border-color: var(--ink); cursor: default; }
+.side-btn:not(.chosen):hover { filter: brightness(1.06); }
+.side-btn:focus-visible { outline: 3px solid var(--blue, #8FB3FF); outline-offset: 2px; }
+@media (max-width: 420px) { .side-pick { grid-template-columns: 1fr; } }
+
+/* ---- Personal plan */
+.plan-tasks { margin-top: 10px; }
+.plan-tasks li { gap: 10px; padding: 10px 12px; }
+.plan-tasks .h-date { display: flex; flex-direction: column; min-width: 0; }
+.plan-tasks .badge-icon { width: 38px; height: 38px; flex: none; }
+.plan-tasks li.done .h-date > span:first-child { text-decoration: line-through; opacity: .6; }
+.plan-tasks .inline-form { margin: 0; }
+.plan-setup { display: flex; flex-direction: column; gap: 14px; }
+.plan-setup .card { margin: 0; }
+.plan-setup fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.plan-q { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; margin-bottom: 12px; padding: 0; }
+.plan-num { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; flex: none;
+  background: var(--ink); color: var(--on-ink); font-size: 14px; }
+.plan-options-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.plan-options-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 520px) { .plan-options-3 { grid-template-columns: 1fr; } .plan-options-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.plan-actions { display: flex; flex-direction: column; gap: 8px; }
+.plan-week { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.plan-week .card { margin: 0; }
+.plan-day.past { opacity: .75; }
+/* The plan's task rows are already cards of their own: no frosted box around the list. */
+.glass .plan-tasks, :root.glass .plan-tasks { background: transparent !important; border: 0 !important;
+  box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }

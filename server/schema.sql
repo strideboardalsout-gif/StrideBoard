@@ -220,3 +220,20 @@ CREATE TABLE IF NOT EXISTS screen_time (
   last_minute TEXT,
   PRIMARY KEY (user_id, date)
 );
+
+-- Personal plan (optional): the set-up answers and how hard the plan is now. The week's tasks
+-- are worked out from these each time (they're mini challenges, so finishing one is a mini run).
+-- step: 0 small challenges .. 2 mostly bigger ones; reviewed_week: the Monday it was last set for.
+CREATE TABLE IF NOT EXISTS plans (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  activity TEXT NOT NULL CHECK (activity IN ('new','some','very')),
+  days INTEGER NOT NULL CHECK (days BETWEEN 2 AND 6),
+  minutes INTEGER NOT NULL CHECK (minutes IN (5, 10, 20)),
+  focus TEXT NOT NULL CHECK (focus IN ('steps','strength','mix')),
+  avoid TEXT NOT NULL DEFAULT '',
+  step INTEGER NOT NULL DEFAULT 0 CHECK (step BETWEEN 0 AND 2),
+  reviewed_week TEXT NOT NULL,
+  last_change TEXT CHECK (last_change IN ('up','down')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

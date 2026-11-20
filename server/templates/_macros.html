@@ -43,6 +43,8 @@
   "share": '<path d="M12 15V3M8 7l4-4 4 4"/><path d="M6 11H5a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 5 21h14a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 19 11h-1"/>',
   "download": '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   "search": '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  "ghost": '<path d="M5 20V10a7 7 0 0 1 14 0v10l-2.3-1.6L14.3 20 12 18.4 9.7 20l-2.4-1.6z"/><path d="M9.5 10.5h.01M14.5 10.5h.01"/>',
+  "bolt": '<path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12z"/>',
   "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   "wifi-off": '<path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 5-2.7M14 10.3A10 10 0 0 1 19 13M2 9.5a15 15 0 0 1 4.5-2.8M11 6a15 15 0 0 1 11 3.5"/><path d="M12 20h.01"/>'
 } -%}
@@ -146,4 +148,16 @@
     <path class="wg-outline" d="M20 10 H120 L110 150 Q108 162 97 162 H43 Q32 162 30 150 Z"/>
   </svg>
 </div>
+{%- endmacro %}
+
+{# Rank badge: "Lv 12 · Shade" with the side's icon and colour. lv = {"level", "side", "rank"}
+   (from data.ranks_for), or the level card's info (rank is then a dict). #}
+{% macro rank_chip(lv, small=False) -%}
+{%- if lv -%}
+{%- set name = lv.rank.name if lv.rank is mapping else lv.rank -%}
+<span class="rank-chip rank-{{ lv.side or 'none' }}{% if small %} rank-chip-sm{% endif %}" title="Level {{ lv.level }}{% if lv.side %} · {{ SIDES[lv.side].name }}{% endif %}">
+  {%- if lv.side == 'reaper' %}{{ icon('ghost', 13 if small else 15) }}{% elif lv.side == 'strider' %}{{ icon('bolt', 13 if small else 15) }}{% else %}{{ icon('star', 13 if small else 15) }}{% endif -%}
+  <span>Lv {{ lv.level }} · {{ name }}</span>
+</span>
+{%- endif -%}
 {%- endmacro %}

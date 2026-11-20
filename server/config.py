@@ -371,3 +371,39 @@ MINI_CHALLENGES = {
     "walk_2500": {"track": "steps", "amount": 2_500, "exp": 35, "min_seconds": 900},
 }
 MINI_DAILY_LIMIT = 3               # each mini challenge can earn EXP this many times a day
+
+
+# ---------------------------------------------------------------- levels and ranks
+# Your level comes from all the EXP you have ever earned (spending it on avatar items never lowers
+# it; refunds don't count). Going from level L to L+1 takes LEVEL_BASE + LEVEL_STEP * (L - 1) EXP:
+# 100 for level 2, about 2,700 in all for level 10, 63,700 for the top level.
+LEVEL_BASE = 100
+LEVEL_STEP = 50
+LEVEL_MAX = 50
+# At this level you pick a side. You can switch any time; your level never changes.
+SIDE_LEVEL = 5
+# Each side's six ranks and the level each starts at. Before SIDE_LEVEL everyone is "Unsorted".
+RANK_LEVELS = (5, 10, 17, 25, 35, 50)
+SIDES = {
+    "reaper": {"name": "Stride Reaper", "ranks": ("Lost Soul", "Wisp", "Shade", "Phantom", "Wraith", "Reaper"),
+               "blurb": "Rise through the Reaper's ranks. Every step makes you scarier."},
+    "strider": {"name": "The Strider", "ranks": ("Bystander", "Sidekick", "Masked", "Caped", "Lightning", "Strider"),
+                "blurb": "Go from bystander to hero. Every step brings you closer to the cape."},
+}
+UNSORTED_RANK = "Unsorted"
+
+# ---------------------------------------------------------------- personal plan
+# The set-up answers, in order. Keys are stored; labels are what people see.
+PLAN_ACTIVITY = {"new": "Just starting", "some": "A bit active", "very": "Very active"}
+PLAN_DAYS = (2, 3, 4, 5, 6)
+PLAN_MINUTES = {5: 2, 10: 3, 20: 5}          # minutes a day -> how many tasks that day
+PLAN_FOCUS = {"steps": "More steps", "strength": "Get stronger", "mix": "A bit of both"}
+# Moves someone can leave out (anything that hurts). Each maps to the mini challenge tracks it drops.
+PLAN_AVOID = {"pushups": ("Push-ups", ("pushups",)), "squats": ("Squats (knees)", ("squats",)),
+              "planks": ("Planks", ("planks",)), "jumping": ("Jumping", ("jumping_jacks",))}
+# Training days of the week (0 = Monday) for each choice of days per week.
+PLAN_WEEKDAYS = {2: (0, 3), 3: (0, 2, 4), 4: (0, 1, 3, 4), 5: (0, 1, 2, 3, 4), 6: (0, 1, 2, 3, 4, 5)}
+# How hard the plan is: 0 = small challenges, 1 = some bigger ones, 2 = mostly bigger ones.
+PLAN_MAX_STEP = 2
+PLAN_STEP_UP = 0.8      # finish this share of last week's tasks: next week gets a little harder
+PLAN_EASE_OFF = 0.4     # finish less than this share: next week gets a little easier

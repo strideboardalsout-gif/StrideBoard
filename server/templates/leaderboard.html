@@ -74,7 +74,7 @@
       <li class="rank-row rank-{{ r.rank }} {{ me }}" data-name="{{ r.name|lower }}">
         <span class="rank-num">{{ r.rank }}</span>
         {% if r.user_id %}{{ m.avatar(r.name, r.avatar, r.avatar_color, 40, r.build) }}{% endif %}
-        <span class="rank-who"><strong>{{ user.display_name if (me and r.user_id) else r.name }}{% if me %} (you){% endif %}{% if r.user_id and not me %}<a class="rank-report" href="{{ url_for('report', uid=r.user_id) }}" title="Report {{ r.name }}" aria-label="Report {{ r.name }}">{{ m.icon('report', 14) }}</a>{% endif %}</strong></span>
+        <span class="rank-who"><strong>{{ user.display_name if (me and r.user_id) else r.name }}{% if me %} (you){% endif %}{% if r.user_id and not me %}<a class="rank-report" href="{{ url_for('report', uid=r.user_id) }}" title="Report {{ r.name }}" aria-label="Report {{ r.name }}">{{ m.icon('report', 14) }}</a>{% endif %}</strong>{{ m.rank_chip(r.level, True) }}</span>
         <span class="rank-val">{{ r.label or (r.value|num) }}</span>
       </li>
       {% endfor %}
@@ -84,7 +84,7 @@
       <li class="rank-row rank-{{ r.rank }} me">
         <span class="rank-num">{{ r.rank }}</span>
         {% if r.user_id %}{{ m.avatar(r.name, r.avatar, r.avatar_color, 40, r.build) }}{% endif %}
-        <span class="rank-who"><strong>{{ user.display_name if r.user_id else r.name }} (you)</strong></span>
+        <span class="rank-who"><strong>{{ user.display_name if r.user_id else r.name }} (you)</strong>{{ m.rank_chip(r.level, True) }}</span>
         <span class="rank-val">{{ r.label or (r.value|num) }}</span>
       </li>
       {% endfor %}

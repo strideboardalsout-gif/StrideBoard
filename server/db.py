@@ -65,7 +65,9 @@ ADDED_COLUMNS = {"users": ["avatar TEXT", "avatar_color TEXT", "email_hash TEXT"
                            "time_limit INTEGER",
                            # A self-chosen name that might be rude but might be real ("Dick",
                            # "Kundan"): the word, and when. Off the boards until an admin decides.
-                           "name_review TEXT", "name_review_at TEXT"],
+                           "name_review TEXT", "name_review_at TEXT",
+                           # Rank side, picked at config.SIDE_LEVEL: 'reaper' or 'strider' (NULL = not yet).
+                           "rank_side TEXT"],
                  "pending_signups": ["parent_email TEXT"],
                  # Blocked emails: the deleted account's name and why, so the owner can tell them
                  # apart and unblock one (the address itself is never stored).
